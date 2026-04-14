@@ -1,98 +1,81 @@
-"""
-Belief Revision Engine — Main entry point.
-Demonstrates belief revision operations and runs AGM postulate tests.
-"""
-from logic import parse, Not, And, Or
+# run demos, AGM tests, and a Mastermind game
+from logic import parse
 from belief_base import BeliefBase
 from revision import expansion, contraction, revision
 from resolution import entails
-from agm_tests import run_all_tests
-from mastermind import play_auto, play_interactive, COLORS, NUM_POSITIONS, NUM_COLORS
-
+from agm_tests import run_all
+from mastermind import play_auto, N_COL, N_POS
 import random
 
 
-def demo_belief_revision():
-    """Demonstrate the belief revision engine with examples."""
-    print("=" * 60)
-    print("BELIEF REVISION ENGINE — DEMONSTRATION")
-    print("=" * 60)
+def demos():
+    print("=" * 55)
+    print("BELIEF REVISION ENGINE")
+    print("=" * 55)
 
-    # ── Example 1: Basic revision ──
-    print("\n--- Example 1: Basic Belief Revision ---")
+    # breaking an implication chain with revision
+    print("\n-- Breaking an implication chain --")
     bb = BeliefBase()
-    bb.add(parse("p"), priority=3)
-    bb.add(parse("p >> q"), priority=2)
-    bb.add(parse("q >> r"), priority=1)
-    print(f"Initial belief base:\n{bb}")
-    print(f"  Entails r? {entails(bb.get_formulas(), parse('r'))}")
+    bb.add(parse("p"), 3)
+    bb.add(parse("p >> q"), 2)
+    bb.add(parse("q >> r"), 1)
+    print(bb)
+    print(f"  entails r? {entails(bb.formulas(), parse('r'))}")
 
-    # Revise with ~r (contradicts the chain p -> q -> r)
-    print("\nRevising with ~r...")
-    bb_revised = revision(bb, parse("~r"), priority=2)
-    print(f"Revised belief base:\n{bb_revised}")
-    print(f"  Entails ~r? {entails(bb_revised.get_formulas(), parse('~r'))}")
-    print(f"  Entails r?  {entails(bb_revised.get_formulas(), parse('r'))}")
+    bb2 = revision(bb, parse("~r"), 2)
+    print("After revising by ~r:")
+    print(bb2)
+    print(f"  entails ~r? {entails(bb2.formulas(), parse('~r'))}")
+    print(f"  entails r?  {entails(bb2.formulas(), parse('r'))}")
 
-    # ── Example 2: Expansion ──
-    print("\n--- Example 2: Expansion ---")
-    bb2 = BeliefBase()
-    bb2.add(parse("sunny"), priority=2)
-    bb2.add(parse("sunny >> warm"), priority=1)
-    print(f"Initial:\n{bb2}")
-
-    bb2_exp = expansion(bb2, parse("windy"), priority=1)
-    print(f"After expanding with 'windy':\n{bb2_exp}")
-
-    # ── Example 3: Contraction ──
-    print("\n--- Example 3: Contraction ---")
+    # simple expansion
+    print("\n-- Expansion --")
     bb3 = BeliefBase()
-    bb3.add(parse("a"), priority=3)
-    bb3.add(parse("b"), priority=2)
-    bb3.add(parse("a >> c"), priority=1)
-    print(f"Initial:\n{bb3}")
-    print(f"  Entails c? {entails(bb3.get_formulas(), parse('c'))}")
+    bb3.add(parse("sunny"), 2)
+    bb3.add(parse("sunny >> warm"), 1)
+    print(bb3)
+    bb4 = expansion(bb3, parse("windy"), 1)
+    print("After expanding with 'windy':")
+    print(bb4)
 
-    bb3_cont = contraction(bb3, parse("c"))
-    print(f"After contracting by 'c':\n{bb3_cont}")
-    print(f"  Entails c? {entails(bb3_cont.get_formulas(), parse('c'))}")
+    # contraction
+    print("\n-- Contraction --")
+    bb5 = BeliefBase()
+    bb5.add(parse("a"), 3)
+    bb5.add(parse("b"), 2)
+    bb5.add(parse("a >> c"), 1)
+    print(bb5)
+    print(f"  entails c? {entails(bb5.formulas(), parse('c'))}")
+    bb6 = contraction(bb5, parse("c"))
+    print("After contracting c:")
+    print(bb6)
+    print(f"  entails c? {entails(bb6.formulas(), parse('c'))}")
 
-    # ── Example 4: Handling contradictions ──
-    print("\n--- Example 4: Handling Contradictions ---")
-    bb4 = BeliefBase()
-    bb4.add(parse("bird"), priority=3)
-    bb4.add(parse("bird >> flies"), priority=2)
-    print(f"Initial:\n{bb4}")
-    print(f"  Entails flies? {entails(bb4.get_formulas(), parse('flies'))}")
-
-    # Learn this bird is a penguin and doesn't fly
-    bb4_rev = revision(bb4, parse("~flies"), priority=3)
-    print(f"After revising with '~flies':\n{bb4_rev}")
-    print(f"  Entails flies?  {entails(bb4_rev.get_formulas(), parse('flies'))}")
-    print(f"  Entails ~flies? {entails(bb4_rev.get_formulas(), parse('~flies'))}")
-
-
-def demo_mastermind():
-    """Run an auto-play Mastermind demo."""
-    print("\n" + "=" * 60)
-    print("MASTERMIND — AUTO-PLAY DEMO")
-    print("=" * 60)
-    secret = random.sample(range(NUM_COLORS), NUM_POSITIONS)
-    play_auto(secret)
+    # handling contradictions (penguin-style)
+    print("\n-- Contradiction handling --")
+    bb7 = BeliefBase()
+    bb7.add(parse("bird"), 3)
+    bb7.add(parse("bird >> flies"), 2)
+    print(bb7)
+    print(f"  entails flies? {entails(bb7.formulas(), parse('flies'))}")
+    bb8 = revision(bb7, parse("~flies"), 3)
+    print("After revising by ~flies:")
+    print(bb8)
+    print(f"  entails flies?  {entails(bb8.formulas(), parse('flies'))}")
+    print(f"  entails ~flies? {entails(bb8.formulas(), parse('~flies'))}")
 
 
 def main():
-    demo_belief_revision()
-
-    print("\n")
-    run_all_tests()
-
-    demo_mastermind()
-
-    print("\n" + "=" * 60)
-    print("To play Mastermind interactively, run:")
-    print("  python3 mastermind.py")
-    print("=" * 60)
+    demos()
+    print()
+    run_all()
+    print()
+    print("=" * 55)
+    print("MASTERMIND -- auto play")
+    print("=" * 55)
+    secret = random.sample(range(N_COL), N_POS)
+    play_auto(secret)
+    print("\n(run `python3 mastermind.py` for interactive mode)")
 
 
 if __name__ == "__main__":

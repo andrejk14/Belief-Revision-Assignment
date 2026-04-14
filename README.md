@@ -1,57 +1,34 @@
 # Belief Revision Engine
 
-Propositional logic belief revision engine implementing AGM theory, with a Mastermind game solver.
+AGM-based belief revision for propositional logic, with a Mastermind solver built on top.
 
 ## Requirements
 
-- Python 3.10+ (no external packages required)
+Python 3.10+, no external packages needed.
 
-## Project Structure
+## Files
 
-| File | Description |
-|------|-------------|
-| `logic.py` | Formula representation, parser, CNF conversion |
-| `resolution.py` | Resolution-based logical entailment |
-| `belief_base.py` | Belief base with priority ordering |
-| `revision.py` | AGM operations: expansion, contraction, revision |
-| `agm_tests.py` | AGM postulate verification tests |
-| `mastermind.py` | Mastermind solver using belief revision |
-| `main.py` | Demo and entry point |
+- `logic.py` — Formula AST, recursive-descent parser, CNF conversion, semantic helpers
+- `resolution.py` — Resolution-based entailment checker (implemented from scratch)
+- `belief_base.py` — Belief base with priority-tagged formulas
+- `revision.py` — Expansion, contraction (partial meet), and revision (Levi identity)
+- `agm_tests.py` — Checks the five AGM postulates
+- `mastermind.py` — Mastermind code-breaker using belief revision
+- `main.py` — Runs demos, AGM tests, and an auto Mastermind game
 
-## Usage
+## How to run
 
-### Run full demo (belief revision examples + AGM tests + Mastermind auto-play)
-
-```bash
-python3 main.py
+```
+python3 main.py                  # everything
+python3 agm_tests.py             # just the AGM tests
+python3 mastermind.py             # interactive Mastermind
+python3 mastermind.py --auto      # auto game with random secret
 ```
 
-### Run AGM postulate tests only
+## Formula syntax
 
-```bash
-python3 agm_tests.py
-```
+Connectives by precedence (low → high): `<>`, `>>`, `|`, `&`, `~`
 
-### Play Mastermind interactively
+Examples: `p & q`, `p >> q`, `~(a | b)`, `p <> q`
 
-```bash
-python3 mastermind.py
-```
-
-### Auto-play Mastermind (random secret code)
-
-```bash
-python3 mastermind.py --auto
-```
-
-## Formula Syntax
-
-| Operator | Symbol | Example |
-|----------|--------|---------|
-| Negation | `~` | `~p` |
-| Conjunction | `&` | `p & q` |
-| Disjunction | `\|` | `p \| q` |
-| Implication | `>>` | `p >> q` |
-| Biconditional | `<>` | `p <> q` |
-
-Parentheses for grouping: `(p | q) & r`
+Atoms can be any identifier starting with a letter.

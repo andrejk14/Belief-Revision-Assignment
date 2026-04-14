@@ -1,86 +1,54 @@
-"""
-Resolution-based logical entailment checking.
-"""
-from __future__ import annotations
-from logic import Formula, Not, And, to_clauses, to_cnf
+from logic import Formula, Neg, to_clauses
 
+MAX_CLAUSES = 50000  # safety cap so we don't spin forever on big inputs
 
-def entails(knowledge_base: list[Formula], query: Formula) -> bool:
-    """
-    Check if knowledge_base |= query using resolution.
-    KB |= query iff KB ∪ {~query} is unsatisfiable.
-    """
-    # Collect all clauses from the KB
+def entails(kb: list[Formula], query: Formula) -> bool:
+    """Check KB |= query via refutation: KB ∪ {¬query} unsat?"""
     clauses = set()
-    for formula in knowledge_base:
-        clauses |= to_clauses(formula)
-
-    # Add negation of the query
-    neg_query = Not(query)
-    clauses |= to_clauses(neg_query)
-
-    return _resolution_refutation(clauses)
+    for f in kb:
+        clauses |= to_clauses(f)
+    clauses |= to_clauses(Neg(query))
+    return _resolve(clauses)
 
 
-def is_unsatisfiable(formulas: list[Formula]) -> bool:
-    """Check if a set of formulas is unsatisfiable using resolution."""
+def is_inconsistent(formulas: list[Formula]) -> bool:
     clauses = set()
     for f in formulas:
         clauses |= to_clauses(f)
-    return _resolution_refutation(clauses)
+    return _resolve(clauses)
 
 
-def _resolution_refutation(clauses: set[frozenset[tuple[str, bool]]]) -> bool:
-    """
-    Apply resolution repeatedly.
-    Returns True if the empty clause is derived (unsatisfiable).
-    """
-    clauses = set(clauses)
-    # Remove tautological clauses (contain both p and ~p)
-    clauses = {c for c in clauses if not _is_tautological_clause(c)}
-
+def _resolve(clauses):
+    clauses = {c for c in clauses if not _taut(c)}
     while True:
-        new_clauses = set()
-        clause_list = list(clauses)
-
-        for i in range(len(clause_list)):
-            for j in range(i + 1, len(clause_list)):
-                resolvents = _resolve(clause_list[i], clause_list[j])
-                for resolvent in resolvents:
-                    if len(resolvent) == 0:
-                        return True  # Empty clause — unsatisfiable
-                    if not _is_tautological_clause(resolvent):
-                        new_clauses.add(resolvent)
-
-        if new_clauses.issubset(clauses):
-            return False  # No new clauses — satisfiable
-
-        clauses |= new_clauses
-
-
-def _resolve(c1: frozenset[tuple[str, bool]],
-             c2: frozenset[tuple[str, bool]]) -> list[frozenset[tuple[str, bool]]]:
-    """
-    Resolve two clauses. Returns a list of resolvents.
-    For each complementary literal pair, produce one resolvent.
-    """
-    resolvents = []
-    for lit1 in c1:
-        complement = (lit1[0], not lit1[1])
-        if complement in c2:
-            # Resolve on this literal
-            new_clause = (c1 - {lit1}) | (c2 - {complement})
-            resolvents.append(frozenset(new_clause))
-    return resolvents
+        new = set()
+        cs = list(clauses)
+        for i in range(len(cs)):
+            for j in range(i + 1, len(cs)):
+                for r in _resolve_pair(cs[i], cs[j]):
+                    if len(r) == 0:
+                        return True  # empty clause -> contradiction
+                    if not _taut(r):
+                        new.add(r)
+        if new <= clauses:
+            return False  # saturated
+        clauses |= new
+        if len(clauses) > MAX_CLAUSES:
+            # can't prove it within budget, give up
+            return False
 
 
-def _is_tautological_clause(clause: frozenset[tuple[str, bool]]) -> bool:
-    """A clause is tautological if it contains both p and ~p."""
-    atoms_pos = set()
-    atoms_neg = set()
-    for name, polarity in clause:
-        if polarity:
-            atoms_pos.add(name)
-        else:
-            atoms_neg.add(name)
-    return bool(atoms_pos & atoms_neg)
+def _resolve_pair(c1, c2):
+    results = []
+    for name, pol in c1:
+        if (name, not pol) in c2:
+            merged = (c1 - {(name, pol)}) | (c2 - {(name, not pol)})
+            results.append(frozenset(merged))
+    return results
+
+
+def _taut(clause):
+    """A clause with both p and ~p is trivially true."""
+    pos = {n for n, p in clause if p}
+    neg = {n for n, p in clause if not p}
+    return bool(pos & neg)
