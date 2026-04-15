@@ -1,6 +1,4 @@
-"""
-Propositional logic: AST, parser, CNF, clause extraction.
-"""
+# logic.py - formula AST, parser, CNF conversion
 from __future__ import annotations
 import re
 from typing import Set, Dict
@@ -162,8 +160,6 @@ def parse(text: str) -> Formula:
         raise SyntaxError(f"trailing token: {peek()}")
     return result
 
-
-# ---- CNF conversion ----
 
 def to_cnf(f: Formula) -> Formula:
     f = _elim_bicond(f)

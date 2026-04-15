@@ -26,7 +26,7 @@ def _is_consistent(formulas):
 
 
 def _logically_equiv(fs1, fs2):
-    """Check if two formula lists entail each other (same closure)."""
+    # check if two sets of formulas have the same logical closure
     for f in fs1:
         if not entails(fs2, f):
             return False
@@ -35,8 +35,6 @@ def _logically_equiv(fs1, fs2):
             return False
     return True
 
-
-# ---- (K*1) Success: phi in B*phi ----
 
 def test_success():
     print("Testing success postulate...")
@@ -64,7 +62,7 @@ def test_success():
            "a not entailed after revising empty base")
 
 
-# ---- (K*2) Inclusion: B*phi ⊆ Cn(B+phi) ----
+# ---- (K*2) Inclusion: B*phi <= Cn(B+phi) ----
 
 def test_inclusion():
     print("Testing inclusion postulate...")
@@ -92,8 +90,6 @@ def test_inclusion():
                f"{f} in B*phi but not entailed by B+phi")
 
 
-# ---- (K*3) Vacuity: if ~phi not in Cn(B) then B*phi = Cn(B+phi) ----
-
 def test_vacuity():
     print("Testing vacuity postulate...")
 
@@ -120,8 +116,6 @@ def test_vacuity():
     _check("vacuity-2", _logically_equiv(rev2.formulas(), exp2.formulas()),
            "B*phi and B+phi not equiv for b|c")
 
-
-# ---- (K*4) Consistency: B*phi consistent when phi is satisfiable ----
 
 def test_consistency():
     print("Testing consistency postulate...")
@@ -151,8 +145,6 @@ def test_consistency():
     _check("consist-3", _is_consistent(r3.formulas()),
            "B*~a inconsistent on single-element base")
 
-
-# ---- (K*5) Extensionality: if phi<=>psi tautology then B*phi = B*psi ----
 
 def test_extensionality():
     print("Testing extensionality postulate...")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from logic import Formula
 
+
 class BeliefBase:
     def __init__(self):
         self._entries: list[tuple[Formula, int]] = []

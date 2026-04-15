@@ -2,16 +2,19 @@ from logic import Formula, Neg, Conj, to_clauses, is_satisfiable
 
 CLAUSE_LIMIT = 50000
 
+
 def entails(kb, query):
-    # refutation: KB ∪ {¬query} unsat => KB |= query
+    # refutation: KB ∪ {¬query} unsatisfiable => KB |= query
     clauses = set()
     for f in kb:
         clauses |= to_clauses(f)
     clauses |= to_clauses(Neg(query))
     res = _resolve(clauses)
     if res is None:
+        # resolution blew up, fall back to truth tables
         return _semantic_entails(kb, query)
     return res
+
 
 def is_inconsistent(formulas):
     clauses = set()
@@ -29,7 +32,7 @@ def _resolve(clauses):
         new = set()
         clist = list(clauses)
         for i in range(len(clist)):
-            for j in range(i+1, len(clist)):
+            for j in range(i + 1, len(clist)):
                 resolvents = _resolve_pair(clist[i], clist[j])
                 for r in resolvents:
                     if len(r) == 0:
@@ -39,8 +42,9 @@ def _resolve(clauses):
         if new <= clauses:
             return False
         clauses |= new
+        # print(f"clauses: {len(clauses)}")
         if len(clauses) > CLAUSE_LIMIT:
-            return None  # can't decide within budget
+            return None  # too many clauses, give up
 
 
 def _resolve_pair(c1, c2):
@@ -66,6 +70,7 @@ def _semantic_entails(kb, query):
     for f in kb[1:]:
         conj = Conj(conj, f)
     return not is_satisfiable(Conj(conj, Neg(query)))
+
 
 def _semantic_inconsistent(formulas):
     if not formulas:
