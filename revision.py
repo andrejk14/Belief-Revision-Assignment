@@ -1,5 +1,3 @@
-# AGM revision via the Levi identity.
-# Contraction is partial meet, using priority as the selection function.
 from __future__ import annotations
 from itertools import combinations
 from logic import Formula, Neg, is_tautology
@@ -7,32 +5,26 @@ from resolution import entails
 from belief_base import BeliefBase
 
 
-def expansion(bb: BeliefBase, phi: Formula, priority: int = 1) -> BeliefBase:
-    out = bb.copy()
-    out.add(phi, priority)
-    return out
+def expansion(bb, phi, priority=1):
+    result = bb.copy()
+    result.add(phi, priority)
+    return result
 
 
-def contraction(bb: BeliefBase, phi: Formula) -> BeliefBase:
-    """
-    Partial meet contraction: find all maximal subsets of bb that
-    don't entail phi, then pick the one with highest total priority.
-    """
+def contraction(bb, phi):
     beliefs = bb.items()
-    flist = [f for f, _ in beliefs]
+    formulas = [f for f, _ in beliefs]
 
-    if not entails(flist, phi):
+    if not entails(formulas, phi):
         return bb.copy()
     if is_tautology(phi):
-        return bb.copy()  # can't contract tautologies (AGM recovery)
+        return bb.copy()
 
     remainders = _find_remainders(beliefs, phi)
     if not remainders:
-        # everything entails phi no matter what -- shouldn't happen for
-        # non-tautologies, but just in case
         return BeliefBase()
 
-    # selection function: take the remainder with the best total priority
+    # selection function: pick the remainder with highest total priority
     best = max(remainders, key=lambda r: sum(p for _, p in r))
     out = BeliefBase()
     for f, p in best:
@@ -40,41 +32,24 @@ def contraction(bb: BeliefBase, phi: Formula) -> BeliefBase:
     return out
 
 
-def revision(bb: BeliefBase, phi: Formula, priority: int = 1) -> BeliefBase:
-    """Levi identity: B * phi = (B - ~phi) + phi"""
+def revision(bb, phi, priority=1):
+    # Levi identity: B * phi = (B - ~phi) + phi
     contracted = contraction(bb, Neg(phi))
     return expansion(contracted, phi, priority)
 
 
 def _find_remainders(beliefs, phi):
-    """
-    Compute all remainder sets: maximal subsets of beliefs that don't entail phi.
-
-    We collect every subset that (a) does not entail phi, and (b) is maximal,
-    meaning adding back any single removed belief would make it entail phi again.
-    """
+    # dropping k at a time: if no k-1 drop breaks entailment,
+    # then any k-drop that does is automatically maximal
     n = len(beliefs)
-    remainders = []
-
-    # try removing k beliefs at a time, k = 1, 2, ..., n
-    for k in range(1, n + 1):
+    for k in range(1, n+1):
+        found = []
         for dropped in combinations(range(n), k):
-            drop_set = set(dropped)
-            subset = [beliefs[i] for i in range(n) if i not in drop_set]
-            sub_formulas = [f for f, _ in subset]
-
-            if entails(sub_formulas, phi):
-                continue
-
-            # maximality check: adding back any ONE dropped belief must
-            # restore entailment, otherwise a larger subset also works
-            maximal = True
-            for d in dropped:
-                if not entails(sub_formulas + [beliefs[d][0]], phi):
-                    maximal = False
-                    break
-
-            if maximal:
-                remainders.append(subset)
-
-    return remainders
+            keep = set(range(n)) - set(dropped)
+            subset = [beliefs[i] for i in sorted(keep)]
+            fs = [f for f, _ in subset]
+            if not entails(fs, phi):
+                found.append(subset)
+        if found:
+            return found
+    return []

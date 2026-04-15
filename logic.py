@@ -1,6 +1,5 @@
 """
-Propositional logic: formula AST, recursive-descent parser,
-CNF conversion, clause extraction, and a few semantic helpers.
+Propositional logic: AST, parser, CNF, clause extraction.
 """
 from __future__ import annotations
 import re
@@ -86,7 +85,8 @@ class Disj(Formula):
 
 class Impl(Formula):
     def __init__(self, lhs: Formula, rhs: Formula):
-        self.lhs, self.rhs = lhs, rhs
+        self.lhs = lhs
+        self.rhs = rhs
     def atoms(self):
         return self.lhs.atoms() | self.rhs.atoms()
     def eval(self, v):
@@ -97,7 +97,8 @@ class Impl(Formula):
 
 class Bicond(Formula):
     def __init__(self, lhs: Formula, rhs: Formula):
-        self.lhs, self.rhs = lhs, rhs
+        self.lhs = lhs
+        self.rhs = rhs
     def atoms(self):
         return self.lhs.atoms() | self.rhs.atoms()
     def eval(self, v):
@@ -106,9 +107,7 @@ class Bicond(Formula):
         return f"{self.lhs} <> {self.rhs}"
 
 
-# parser
-# precedence (low to high): <>, >>, |, &, ~
-
+# precedence (low->high): <>, >>, |, &, ~
 _TOK = re.compile(r"\s*(~|&|\||\(|\)|>>|<>|[a-zA-Z_]\w*)\s*")
 
 def parse(text: str) -> Formula:
@@ -164,7 +163,7 @@ def parse(text: str) -> Formula:
     return result
 
 
-# CNF conversion
+# ---- CNF conversion ----
 
 def to_cnf(f: Formula) -> Formula:
     f = _elim_bicond(f)
@@ -207,7 +206,6 @@ def _push_neg(f):
     return f
 
 def _distribute(f):
-    """Push disjunctions inside conjunctions to get CNF."""
     if isinstance(f, (Atom, Neg)): return f
     if isinstance(f, Conj):
         return Conj(*[_distribute(p) for p in f.parts])
@@ -239,16 +237,13 @@ def _flatten(f):
     return f
 
 
-# clause extraction for resolution
-
-def to_clauses(formula: Formula):
-    """Returns set of frozensets, each frozenset = {(atom, polarity), ...}"""
+def to_clauses(formula):
+    """set of frozensets, each frozenset = {(atom, polarity), ...}"""
     cnf = to_cnf(formula)
     clauses = set()
     def collect(f):
         if isinstance(f, Conj):
-            for p in f.parts:
-                collect(p)
+            for p in f.parts: collect(p)
         else:
             clauses.add(_make_clause(f))
     collect(cnf)
@@ -269,22 +264,20 @@ def _make_clause(f):
     return frozenset(lits)
 
 
-#semantic helpers
-
 def _all_valuations(atoms):
     atoms = sorted(atoms)
     n = len(atoms)
     for i in range(1 << n):
         yield {a: bool((i >> j) & 1) for j, a in enumerate(atoms)}
 
-def is_tautology(f: Formula) -> bool:
+def is_tautology(f):
     return all(f.eval(v) for v in _all_valuations(f.atoms()))
 
-def is_satisfiable(f: Formula) -> bool:
+def is_satisfiable(f):
     atoms = f.atoms()
     if not atoms:
         return f.eval({})
     return any(f.eval(v) for v in _all_valuations(atoms))
 
-def equivalent(a: Formula, b: Formula) -> bool:
+def equivalent(a, b):
     return is_tautology(Bicond(a, b))

@@ -1,34 +1,28 @@
 # Belief Revision Engine
 
-AGM-based belief revision for propositional logic, with a Mastermind solver built on top.
+AGM-based belief revision for propositional logic. Includes a Mastermind solver.
 
 ## Requirements
-
-Python 3.10+, no external packages needed.
+Python 3.10+, no external packages.
 
 ## Files
-
-- `logic.py` — Formula AST, recursive-descent parser, CNF conversion, semantic helpers
-- `resolution.py` — Resolution-based entailment checker (implemented from scratch)
-- `belief_base.py` — Belief base with priority-tagged formulas
-- `revision.py` — Expansion, contraction (partial meet), and revision (Levi identity)
-- `agm_tests.py` — Checks the five AGM postulates
+- `logic.py` — formula AST, parser, CNF conversion, semantic helpers
+- `resolution.py` — resolution-based entailment (with semantic fallback for large inputs)
+- `belief_base.py` — belief base with priority-tagged formulas
+- `revision.py` — expansion, contraction (partial meet), revision (Levi identity)
+- `agm_tests.py` — tests for the five AGM postulates
 - `mastermind.py` — Mastermind code-breaker using belief revision
-- `main.py` — Runs demos, AGM tests, and an auto Mastermind game
+- `main.py` — runs demos, AGM tests, and a Mastermind game
 
-## How to run
-
+## Running
 ```
 python3 main.py                  # everything
-python3 agm_tests.py             # just the AGM tests
+python3 agm_tests.py             # AGM tests only
 python3 mastermind.py             # interactive Mastermind
 python3 mastermind.py --auto      # auto game with random secret
 ```
 
 ## Formula syntax
-
-Connectives by precedence (low → high): `<>`, `>>`, `|`, `&`, `~`
+Connectives (low to high precedence): `<>`, `>>`, `|`, `&`, `~`
 
 Examples: `p & q`, `p >> q`, `~(a | b)`, `p <> q`
-
-Atoms can be any identifier starting with a letter.

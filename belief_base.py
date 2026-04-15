@@ -1,25 +1,23 @@
-# Priority-tagged belief base. Higher priority = more entrenched.
 from __future__ import annotations
 from logic import Formula
-
 
 class BeliefBase:
     def __init__(self):
         self._entries: list[tuple[Formula, int]] = []
 
     def add(self, formula: Formula, priority: int = 1):
-        # skip syntactic duplicates
-        if any(f == formula for f, _ in self._entries):
-            return
+        for f, _ in self._entries:
+            if f == formula:
+                return
         self._entries.append((formula, priority))
 
-    def remove(self, formula: Formula):
+    def remove(self, formula):
         self._entries = [(f, p) for f, p in self._entries if f != formula]
 
-    def formulas(self) -> list[Formula]:
+    def formulas(self):
         return [f for f, _ in self._entries]
 
-    def items(self) -> list[tuple[Formula, int]]:
+    def items(self):
         return list(self._entries)
 
     def copy(self) -> BeliefBase:

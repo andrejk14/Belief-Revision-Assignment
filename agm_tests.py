@@ -1,8 +1,3 @@
-# agm_tests.py
-# Tests for the five AGM postulates: success, inclusion, vacuity,
-# consistency, extensionality.
-# Run: python3 agm_tests.py
-
 from logic import parse, Neg, Conj, Bicond, is_tautology, is_satisfiable
 from resolution import entails
 from belief_base import BeliefBase
@@ -10,6 +5,7 @@ from revision import expansion, contraction, revision
 
 _passed = 0
 _failed = 0
+
 
 def _check(tag, cond, msg=""):
     global _passed, _failed
@@ -20,7 +16,28 @@ def _check(tag, cond, msg=""):
         print(f"  FAIL [{tag}]: {msg}")
 
 
-# (K*1) Success: phi should be in B*phi
+def _is_consistent(formulas):
+    if not formulas:
+        return True
+    c = formulas[0]
+    for f in formulas[1:]:
+        c = Conj(c, f)
+    return is_satisfiable(c)
+
+
+def _logically_equiv(fs1, fs2):
+    """Check if two formula lists entail each other (same closure)."""
+    for f in fs1:
+        if not entails(fs2, f):
+            return False
+    for f in fs2:
+        if not entails(fs1, f):
+            return False
+    return True
+
+
+# ---- (K*1) Success: phi in B*phi ----
+
 def test_success():
     print("Testing success postulate...")
 
@@ -28,21 +45,27 @@ def test_success():
     bb.add(parse("p"), 2)
     bb.add(parse("q"), 1)
 
-    r1 = revision(bb, parse("r"))
-    _check("success-r", entails(r1.formulas(), parse("r")),
+    r = revision(bb, parse("r"))
+    _check("success-1", entails(r.formulas(), parse("r")),
            "r not entailed after revising by r")
 
-    # revise by negation of existing belief
     r2 = revision(bb, parse("~p"))
-    _check("success-~p", entails(r2.formulas(), parse("~p")),
+    _check("success-2", entails(r2.formulas(), parse("~p")),
            "~p not entailed after revising by ~p")
 
     r3 = revision(bb, parse("p & r"))
-    _check("success-p&r", entails(r3.formulas(), parse("p & r")),
+    _check("success-3", entails(r3.formulas(), parse("p & r")),
            "p&r not entailed after revising by p&r")
 
+    # empty base
+    empty = BeliefBase()
+    r4 = revision(empty, parse("a"))
+    _check("success-empty", entails(r4.formulas(), parse("a")),
+           "a not entailed after revising empty base")
 
-# (K*2) Inclusion: B*phi ⊆ Cn(B+phi)
+
+# ---- (K*2) Inclusion: B*phi ⊆ Cn(B+phi) ----
+
 def test_inclusion():
     print("Testing inclusion postulate...")
 
@@ -57,7 +80,7 @@ def test_inclusion():
         _check("incl-1", entails(exp.formulas(), f),
                f"{f} in B*phi but not entailed by B+phi")
 
-    # case with actual conflict
+    # with actual conflict
     bb2 = BeliefBase()
     bb2.add(parse("p"), 2)
     bb2.add(parse("p >> q"), 1)
@@ -69,7 +92,8 @@ def test_inclusion():
                f"{f} in B*phi but not entailed by B+phi")
 
 
-# (K*3) Vacuity: if ~phi not in B, then B*phi = B+phi
+# ---- (K*3) Vacuity: if ~phi not in Cn(B) then B*phi = Cn(B+phi) ----
+
 def test_vacuity():
     print("Testing vacuity postulate...")
 
@@ -78,19 +102,27 @@ def test_vacuity():
     bb.add(parse("q"), 1)
     phi = parse("r")
 
-    # ~r shouldn't be entailed, so vacuity should apply
-    assert not entails(bb.formulas(), Neg(phi)), "bad test setup"
+    assert not entails(bb.formulas(), Neg(phi)), "precondition broken"
 
     rev = revision(bb, phi)
     exp = expansion(bb, phi)
+    _check("vacuity-1", _logically_equiv(rev.formulas(), exp.formulas()),
+           "B*phi and B+phi not logically equivalent")
 
-    rev_s = set(str(f) for f in rev.formulas())
-    exp_s = set(str(f) for f in exp.formulas())
-    _check("vacuity", rev_s == exp_s,
-           f"B*phi != B+phi  (rev={rev_s}, exp={exp_s})")
+    # also try with a more complex phi
+    bb2 = BeliefBase()
+    bb2.add(parse("a"), 2)
+    phi2 = parse("b | c")
+    assert not entails(bb2.formulas(), Neg(phi2))
+
+    rev2 = revision(bb2, phi2)
+    exp2 = expansion(bb2, phi2)
+    _check("vacuity-2", _logically_equiv(rev2.formulas(), exp2.formulas()),
+           "B*phi and B+phi not equiv for b|c")
 
 
-# (K*4) Consistency: B*phi is consistent (when phi is satisfiable)
+# ---- (K*4) Consistency: B*phi consistent when phi is satisfiable ----
+
 def test_consistency():
     print("Testing consistency postulate...")
 
@@ -99,30 +131,29 @@ def test_consistency():
     bb.add(parse("q"), 1)
 
     r = revision(bb, parse("~p"))
-    fs = r.formulas()
-    if fs:
-        conjoined = fs[0]
-        for f in fs[1:]:
-            conjoined = Conj(conjoined, f)
-        _check("consist-1", is_satisfiable(conjoined),
-               "B*~p is inconsistent")
+    _check("consist-1", _is_consistent(r.formulas()),
+           "B*~p is inconsistent")
 
-    # longer chain
+    # longer implication chain
     bb2 = BeliefBase()
     bb2.add(parse("p"), 3)
     bb2.add(parse("p >> q"), 2)
     bb2.add(parse("q >> r"), 1)
+
     r2 = revision(bb2, parse("~r"))
-    fs2 = r2.formulas()
-    if fs2:
-        conjoined2 = fs2[0]
-        for f in fs2[1:]:
-            conjoined2 = Conj(conjoined2, f)
-        _check("consist-2", is_satisfiable(conjoined2),
-               "B*~r is inconsistent")
+    _check("consist-2", _is_consistent(r2.formulas()),
+           "B*~r is inconsistent")
+
+    # single belief
+    bb3 = BeliefBase()
+    bb3.add(parse("a"), 1)
+    r3 = revision(bb3, parse("~a"))
+    _check("consist-3", _is_consistent(r3.formulas()),
+           "B*~a inconsistent on single-element base")
 
 
-# (K*5) Extensionality: if phi <=> psi is a tautology, then B*phi = B*psi
+# ---- (K*5) Extensionality: if phi<=>psi tautology then B*phi = B*psi ----
+
 def test_extensionality():
     print("Testing extensionality postulate...")
 
@@ -137,26 +168,22 @@ def test_extensionality():
 
     r1 = revision(bb, phi)
     r2 = revision(bb, psi)
-    for f in r1.formulas():
-        _check("ext-1a", entails(r2.formulas(), f),
-               f"{f} in B*phi but not in B*psi")
-    for f in r2.formulas():
-        _check("ext-1b", entails(r1.formulas(), f),
-               f"{f} in B*psi but not in B*phi")
+    _check("ext-1", _logically_equiv(r1.formulas(), r2.formulas()),
+           "B*(~~r) != B*r")
 
-    # p|q vs q|p
+    # p|q <=> q|p
     bb2 = BeliefBase()
     bb2.add(parse("r"), 2)
     ra = revision(bb2, parse("p | q"))
     rb = revision(bb2, parse("q | p"))
-    for f in ra.formulas():
-        _check("ext-2", entails(rb.formulas(), f),
-               "p|q vs q|p mismatch")
+    _check("ext-2", _logically_equiv(ra.formulas(), rb.formulas()),
+           "B*(p|q) != B*(q|p)")
 
 
 def run_all():
     global _passed, _failed
-    _passed, _failed = 0, 0
+    _passed = 0
+    _failed = 0
 
     print("=" * 50)
     print("AGM postulate tests")
