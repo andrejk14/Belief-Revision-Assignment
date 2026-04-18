@@ -27,9 +27,9 @@ def contraction(
     belief_items = belief_base.items()
     formulas = [formula for formula, _ in belief_items]
 
-    if not entails_fn(formulas, phi):
-        return belief_base.copy()
     if is_tautology(phi):
+        return belief_base.copy()
+    if not entails_fn(formulas, phi):
         return belief_base.copy()
 
     remainders = _maximal_non_entailing_subsets(belief_items, phi, entails_fn)
@@ -56,18 +56,20 @@ def _maximal_non_entailing_subsets(
     phi: Formula,
     entails_fn: EntailsFn,
 ) -> list[Remainder]:
-    n_beliefs = len(beliefs)
-    non_entailing_indices: list[frozenset[int]] = []
-
-    for size in range(n_beliefs + 1):
-        for indices in combinations(range(n_beliefs), size):
-            subset_formulas = [beliefs[index][0] for index in indices]
-            if not entails_fn(subset_formulas, phi):
-                non_entailing_indices.append(frozenset(indices))
-
     maximal_indices: list[frozenset[int]] = []
-    for candidate in non_entailing_indices:
-        if not any(candidate < other for other in non_entailing_indices):
+
+    for size in range(len(beliefs) + 1):
+        for indices in combinations(range(len(beliefs)), size):
+            candidate = frozenset(indices)
+
+            if any(candidate < other for other in maximal_indices):
+                continue
+
+            subset_formulas = [beliefs[index][0] for index in indices]
+            if entails_fn(subset_formulas, phi):
+                continue
+
+            maximal_indices = [other for other in maximal_indices if not other < candidate]
             maximal_indices.append(candidate)
 
     maximal_indices.sort(key=lambda index_set: (-len(index_set), tuple(sorted(index_set))))
@@ -75,9 +77,9 @@ def _maximal_non_entailing_subsets(
 
 
 def _preferred_remainders(remainders: list[Remainder]) -> list[Remainder]:
-    scored_remainders = [(remainder, _priority_score(remainder)) for remainder in remainders]
-    best_score = max(score for _, score in scored_remainders)
-    return [remainder for remainder, score in scored_remainders if score == best_score]
+    profiled_remainders = [(remainder, _priority_profile(remainder)) for remainder in remainders]
+    best_profile = max(profile for _, profile in profiled_remainders)
+    return [remainder for remainder, profile in profiled_remainders if profile == best_profile]
 
 
 def _intersect_remainders(remainders: list[Remainder]) -> set[WeightedBelief]:
@@ -98,6 +100,5 @@ def _build_belief_base(
     return result
 
 
-def _priority_score(remainder: Remainder) -> tuple[int, tuple[int, ...], int]:
-    priorities = sorted((priority for _, priority in remainder), reverse=True)
-    return (sum(priorities), tuple(priorities), len(remainder))
+def _priority_profile(remainder: Remainder) -> tuple[int, ...]:
+    return tuple(sorted((priority for _, priority in remainder), reverse=True))

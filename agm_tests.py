@@ -143,6 +143,17 @@ class RevisionPostulateTests(unittest.TestCase):
         self.assertEqual([str(formula) for formula in contracted.formulas()], ["p"])
         self.assertFalse(entails(contracted.formulas(), parse("r")))
 
+    def test_contraction_compares_priority_profiles_lexicographically(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 5)
+        bb.add(parse("p >> q"), 4)
+        bb.add(parse("p >> r"), 4)
+
+        contracted = contraction(bb, parse("q | r"))
+
+        self.assertEqual([str(formula) for formula in contracted.formulas()], ["p"])
+        self.assertFalse(entails(contracted.formulas(), parse("q | r")))
+
     def test_contraction_by_tautology_is_identity(self):
         bb = BeliefBase()
         bb.add(parse("p"), 2)
@@ -169,6 +180,22 @@ class ParserTests(unittest.TestCase):
     def test_rejects_trailing_operator(self):
         with self.assertRaises(SyntaxError):
             parse("p &")
+            
+    def test_rejects_unmatched_open_parenthesis(self):
+        with self.assertRaises(SyntaxError):
+            parse("(p & q")
+
+    def test_rejects_unmatched_close_parenthesis(self):
+        with self.assertRaises(SyntaxError):
+            parse("p & q)")
+
+    def test_rejects_leading_binary_operator(self):
+        with self.assertRaises(SyntaxError):
+            parse("& p")
+
+    def test_rejects_double_binary_operator(self):
+        with self.assertRaises(SyntaxError):
+            parse("p && q")
 
 
 if __name__ == "__main__":

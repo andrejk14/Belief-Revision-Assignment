@@ -4,7 +4,7 @@ from itertools import permutations
 
 from belief_base import BeliefBase
 from logic import Atom, Conj, Disj, Formula, Neg
-from revision import expansion
+from revision import revision
 
 COLORS = ["R", "G", "B", "Y", "O", "P"]
 N_POSITIONS = 4
@@ -84,22 +84,41 @@ def _consistent_codes(formulas: list[Formula]) -> list[list[int]]:
 
 class Solver:
     def __init__(self) -> None:
-        self.belief_base = BeliefBase()
+        self._background = BeliefBase()
         for formula in _background_knowledge():
-            self.belief_base.add(formula, priority=10)
+            self._background.add(formula, priority=10)
+
+        self._feedback = BeliefBase()
+        self.belief_base = BeliefBase()
         self.turn = 0
         self._cache: list[list[int]] | None = None
+
+        self._sync_belief_base()
+
+    def _sync_belief_base(self) -> None:
+        combined = self._background.copy()
+        for formula, priority in self._feedback:
+            combined.add(formula, priority)
+        self.belief_base = combined
 
     def _candidates(self) -> list[list[int]]:
         if self._cache is None:
             self._cache = _consistent_codes(self.belief_base.formulas())
         return self._cache
 
+    def _feedback_entails(self, formulas: list[Formula], query: Formula) -> bool:
+        candidates = _consistent_codes(self._background.formulas() + formulas)
+        if not candidates:
+            return False
+        return all(query.eval(_code_to_valuation(code)) for code in candidates)
+
     def guess(self) -> list[int]:
         candidates = self._candidates()
         self.turn += 1
 
-        if self.turn == 1 or not candidates:
+        if not candidates:
+            raise ValueError("Belief base is inconsistent")
+        if self.turn == 1:
             return [0, 1, 2, 3]
         if len(candidates) <= 2:
             return candidates[0]
@@ -107,10 +126,19 @@ class Solver:
 
     def observe(self, guess: list[int], black: int, white: int) -> None:
         feedback = _encode_feedback(guess, black, white)
-        updated = expansion(self.belief_base, feedback, priority=5)
-        if not _consistent_codes(updated.formulas()):
+        updated_feedback = revision(
+            self._feedback,
+            feedback,
+            priority=5,
+            entails_fn=self._feedback_entails,
+        )
+
+        combined_formulas = self._background.formulas() + updated_feedback.formulas()
+        if not _consistent_codes(combined_formulas):
             raise ValueError("Inconsistent feedback")
-        self.belief_base = updated
+
+        self._feedback = updated_feedback
+        self._sync_belief_base()
         self._cache = None
 
     def remaining(self) -> int:
@@ -120,15 +148,17 @@ class Solver:
         best_guess = candidates[0]
         best_worst_case = len(candidates)
 
-        for guess in candidates[:50]:
+        for guess in candidates:
             buckets: dict[tuple[int, int], int] = {}
             for secret in candidates:
                 outcome = _score(guess, secret)
                 buckets[outcome] = buckets.get(outcome, 0) + 1
+
             worst_case = max(buckets.values())
             if worst_case < best_worst_case:
                 best_worst_case = worst_case
                 best_guess = guess
+
         return best_guess
 
 
@@ -144,11 +174,14 @@ def play_auto(secret: list[int]) -> int:
     for turn in range(1, 11):
         guess = solver.guess()
         black, white = _score(guess, secret)
-        print(f"Turn {turn}: {code_str(guess)}  ->  {black}B {white}W   ({solver.remaining()} remaining)")
+
         if black == N_POSITIONS:
+            print(f"Turn {turn}: {code_str(guess)}  ->  {black}B {white}W   (1 remaining)")
             print(f"Solved in {turn} turns.")
             return turn
+
         solver.observe(guess, black, white)
+        print(f"Turn {turn}: {code_str(guess)}  ->  {black}B {white}W   ({solver.remaining()} remaining)")
 
     print("Failed to solve in 10 turns.")
     return -1
