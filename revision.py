@@ -21,31 +21,37 @@ def contraction(
     phi: Formula,
     entails_fn: EntailsFn | None = None,
 ) -> BeliefBase:
-    """Priority-guided partial meet contraction."""
+    """Priority-guided partial meet contraction.
+
+    We compute all maximal remainders that do not entail ``phi``, keep the
+    highest-ranked ones according to formula priorities, and return their
+    intersection.
+    """
     entails_fn = entails_fn or default_entails
-    formulas = belief_base.formulas()
+    belief_items = belief_base.items()
+    formulas = [formula for formula, _ in belief_items]
 
     if not entails_fn(formulas, phi):
         return belief_base.copy()
     if is_tautology(phi):
         return belief_base.copy()
 
-    remainders = _find_remainders(belief_base.items(), phi, entails_fn)
+    remainders = _find_remainders(belief_items, phi, entails_fn)
     if not remainders:
         return BeliefBase()
 
-    best = max(
-        remainders,
-        key=lambda remainder: (
-            sum(priority for _, priority in remainder),
-            len(remainder),
-            tuple(sorted((priority, str(formula)) for formula, priority in remainder)),
-        ),
-    )
+    scored_remainders = [(remainder, _priority_score(remainder)) for remainder in remainders]
+    best_score = max(score for _, score in scored_remainders)
+    selected_remainders = [remainder for remainder, score in scored_remainders if score == best_score]
+
+    common_beliefs = set(selected_remainders[0])
+    for remainder in selected_remainders[1:]:
+        common_beliefs &= set(remainder)
 
     result = BeliefBase()
-    for formula, priority in best:
-        result.add(formula, priority)
+    for formula, belief_priority in belief_items:
+        if (formula, belief_priority) in common_beliefs:
+            result.add(formula, belief_priority)
     return result
 
 
@@ -86,3 +92,13 @@ def _find_remainders(
         [beliefs[index] for index in sorted(index_set)]
         for index_set in maximal_indices
     ]
+
+
+def _priority_score(remainder: list[tuple[Formula, int]]) -> tuple[int, tuple[int, ...], int]:
+    """Lexicographic score for selecting preferred remainders.
+
+    Higher total priority wins first; ties are broken by stronger retained
+    priorities, then by subset size.
+    """
+    priorities = sorted((priority for _, priority in remainder), reverse=True)
+    return (sum(priorities), tuple(priorities), len(remainder))

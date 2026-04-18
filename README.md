@@ -1,43 +1,59 @@
 # Belief Revision Engine
 
-This project implements a small belief revision engine for propositional logic.
-It includes:
+This repository contains a propositional-logic belief revision engine built around AGM-style revision.
+It is implemented from scratch using course concepts (parser, CNF, resolution, contraction/expansion/revision).
 
-- a propositional formula AST and parser
-- CNF conversion and resolution-based entailment
-- priority-based partial meet contraction
-- expansion and revision via the Levi identity
-- AGM postulate tests
-- an optional Mastermind solver built on top of the revision engine
+## Requirement Coverage
 
-## Files
+The assignment asks for four stages. The implementation follows them directly:
 
-- `logic.py` contains the formula representation, parser, CNF conversion, and semantic helpers.
-- `belief_base.py` implements the finite belief base and priority-tagged entries.
-- `resolution.py` implements entailment by refutation with a semantic fallback.
-- `revision.py` implements expansion, contraction, and revision.
-- `agm_tests.py` contains tests for Success, Inclusion, Vacuity, Consistency, and Extensionality.
-- `mastermind.py` contains the optional Mastermind code-breaker.
-- `main.py` runs the demos, tests, and a sample Mastermind game.
+1. **Belief base design**: `belief_base.py` implements a finite belief base with priorities.
+2. **Logical entailment**: `resolution.py` implements entailment by resolution refutation over CNF clauses (`logic.py`).
+3. **Contraction**: `revision.py` implements **priority-guided partial meet contraction**.
+4. **Expansion**: `revision.py` adds formulas with priorities; `revision()` uses Levi identity.
 
-## Running
+AGM postulates requested in the assignment are tested in `agm_tests.py`:
+
+- Success
+- Inclusion
+- Vacuity
+- Consistency
+- Extensionality
+
+Optional part:
+
+- `mastermind.py` integrates the revision engine into a Mastermind code-breaker.
+
+## Project Structure
+
+- `logic.py`: formula AST, parser, CNF conversion, satisfiability/tautology/equivalence helpers.
+- `belief_base.py`: belief entries and priority-aware base operations.
+- `resolution.py`: clause extraction and resolution-based entailment.
+- `revision.py`: expansion, contraction, revision.
+- `agm_tests.py`: unit tests for required postulates and parser edge cases.
+- `mastermind.py`: optional game integration.
+- `main.py`: demo runner (belief revision demo + AGM tests + Mastermind auto game).
+
+## Run Instructions
+
+No external Python dependencies are required.
 
 ```bash
-python3 main.py
 python3 agm_tests.py
+python3 main.py
 python3 mastermind.py
 python3 mastermind.py --auto
 ```
 
-## Formula syntax
+## Formula Syntax
 
-Operators from lowest to highest precedence:
+Operator precedence (low to high):
 
-- `<>` biconditional
-- `>>` implication
-- `|` disjunction
-- `&` conjunction
-- `~` negation
+1. `<>` biconditional
+2. `>>` implication
+3. `|` disjunction
+4. `&` conjunction
+5. `~` negation
 
 Examples:
 

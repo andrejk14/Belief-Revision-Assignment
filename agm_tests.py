@@ -104,6 +104,30 @@ class RevisionPostulateTests(unittest.TestCase):
         self.assertEqual(str(contracted.formulas()[0]), str(parse("(p >> p) | r >> q & p")))
         self.assertFalse(entails(contracted.formulas(), parse("r")))
 
+    def test_partial_meet_intersection_not_maxichoice(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 1)
+        bb.add(parse("p >> r"), 1)
+        bb.add(parse("q"), 1)
+        bb.add(parse("q >> r"), 1)
+
+        contracted = contraction(bb, parse("r"))
+
+        self.assertEqual(contracted.formulas(), [])
+        self.assertFalse(entails(contracted.formulas(), parse("r")))
+
+    def test_contraction_prefers_higher_priority_information(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 5)
+        bb.add(parse("p >> r"), 1)
+        bb.add(parse("q"), 1)
+        bb.add(parse("q >> r"), 1)
+
+        contracted = contraction(bb, parse("r"))
+
+        self.assertEqual([str(formula) for formula in contracted.formulas()], ["p"])
+        self.assertFalse(entails(contracted.formulas(), parse("r")))
+
 
 class ParserTests(unittest.TestCase):
     def test_rejects_operator_tokens_as_atoms(self):
