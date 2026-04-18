@@ -13,8 +13,6 @@ class BeliefEntry:
 
 
 class BeliefBase:
-    """Finite belief base with integer priorities."""
-
     def __init__(self) -> None:
         self._entries: list[BeliefEntry] = []
 

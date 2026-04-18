@@ -8,7 +8,6 @@ CLAUSE_LIMIT = 50_000
 
 
 def entails(knowledge_base: list[Formula], query: Formula) -> bool:
-    """Resolution-based entailment with a semantic fallback for large clause sets."""
     clauses: set[Clause] = set()
     for formula in knowledge_base:
         clauses |= to_clauses(formula)

@@ -1,21 +1,31 @@
 from __future__ import annotations
 
 import unittest
+from itertools import product
 
 from belief_base import BeliefBase
-from logic import Bicond, Conj, Neg, is_satisfiable, is_tautology, parse
+from logic import Bicond, Conj, Formula, Neg, is_satisfiable, is_tautology, parse
 from resolution import entails
 from revision import contraction, expansion, revision
 
 
-def _is_consistent(formulas):
+def _beliefs_are_consistent(formulas: list[Formula]) -> bool:
     if not formulas:
         return True
     return is_satisfiable(Conj(*formulas))
 
 
-def _closure_equivalent(left, right):
-    return all(entails(left, formula) for formula in right) and all(entails(right, formula) for formula in left)
+def _same_models(left: list[Formula], right: list[Formula]) -> bool:
+    atoms = sorted({atom for formula in left + right for atom in formula.atoms()})
+
+    for values in product((False, True), repeat=len(atoms)):
+        valuation = dict(zip(atoms, values))
+        left_holds = all(formula.eval(valuation) for formula in left)
+        right_holds = all(formula.eval(valuation) for formula in right)
+        if left_holds != right_holds:
+            return False
+
+    return True
 
 
 class RevisionPostulateTests(unittest.TestCase):
@@ -54,29 +64,29 @@ class RevisionPostulateTests(unittest.TestCase):
         bb.add(parse("q"), 1)
         phi = parse("r")
         self.assertFalse(entails(bb.formulas(), Neg(phi)))
-        self.assertTrue(_closure_equivalent(revision(bb, phi).formulas(), expansion(bb, phi).formulas()))
+        self.assertTrue(_same_models(revision(bb, phi).formulas(), expansion(bb, phi).formulas()))
 
         bb2 = BeliefBase()
         bb2.add(parse("a"), 2)
         phi2 = parse("b | c")
         self.assertFalse(entails(bb2.formulas(), Neg(phi2)))
-        self.assertTrue(_closure_equivalent(revision(bb2, phi2).formulas(), expansion(bb2, phi2).formulas()))
+        self.assertTrue(_same_models(revision(bb2, phi2).formulas(), expansion(bb2, phi2).formulas()))
 
     def test_consistency(self):
         bb = BeliefBase()
         bb.add(parse("p"), 2)
         bb.add(parse("q"), 1)
-        self.assertTrue(_is_consistent(revision(bb, parse("~p")).formulas()))
+        self.assertTrue(_beliefs_are_consistent(revision(bb, parse("~p")).formulas()))
 
         bb2 = BeliefBase()
         bb2.add(parse("p"), 3)
         bb2.add(parse("p >> q"), 2)
         bb2.add(parse("q >> r"), 1)
-        self.assertTrue(_is_consistent(revision(bb2, parse("~r")).formulas()))
+        self.assertTrue(_beliefs_are_consistent(revision(bb2, parse("~r")).formulas()))
 
         bb3 = BeliefBase()
         bb3.add(parse("a"), 1)
-        self.assertTrue(_is_consistent(revision(bb3, parse("~a")).formulas()))
+        self.assertTrue(_beliefs_are_consistent(revision(bb3, parse("~a")).formulas()))
 
     def test_extensionality(self):
         bb = BeliefBase()
@@ -86,11 +96,16 @@ class RevisionPostulateTests(unittest.TestCase):
         phi = parse("~~r")
         psi = parse("r")
         self.assertTrue(is_tautology(Bicond(phi, psi)))
-        self.assertTrue(_closure_equivalent(revision(bb, phi).formulas(), revision(bb, psi).formulas()))
+        self.assertTrue(_same_models(revision(bb, phi).formulas(), revision(bb, psi).formulas()))
 
         bb2 = BeliefBase()
         bb2.add(parse("r"), 2)
-        self.assertTrue(_closure_equivalent(revision(bb2, parse("p | q")).formulas(), revision(bb2, parse("q | p")).formulas()))
+        self.assertTrue(
+            _same_models(
+                revision(bb2, parse("p | q")).formulas(),
+                revision(bb2, parse("q | p")).formulas(),
+            )
+        )
 
     def test_contraction_uses_all_maximal_remainders(self):
         bb = BeliefBase()
@@ -128,6 +143,15 @@ class RevisionPostulateTests(unittest.TestCase):
         self.assertEqual([str(formula) for formula in contracted.formulas()], ["p"])
         self.assertFalse(entails(contracted.formulas(), parse("r")))
 
+    def test_contraction_by_tautology_is_identity(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 2)
+        bb.add(parse("p >> q"), 1)
+
+        tautology = parse("p | ~p")
+        self.assertTrue(is_tautology(tautology))
+        self.assertEqual(contraction(bb, tautology).items(), bb.items())
+
 
 class ParserTests(unittest.TestCase):
     def test_rejects_operator_tokens_as_atoms(self):
@@ -135,6 +159,16 @@ class ParserTests(unittest.TestCase):
             with self.subTest(token=token):
                 with self.assertRaises(SyntaxError):
                     parse(token)
+    
+    
+    def test_rejects_empty_formula(self):
+        with self.assertRaises(SyntaxError):
+            parse("")
+
+
+    def test_rejects_trailing_operator(self):
+        with self.assertRaises(SyntaxError):
+            parse("p &")
 
 
 if __name__ == "__main__":

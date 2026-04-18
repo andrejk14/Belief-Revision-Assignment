@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Dict, Iterable, Iterator, Sequence
+from typing import Dict, Iterable, Iterator
 
 
 class Formula:
-    """Base class for propositional formulas."""
-
     def atoms(self) -> set[str]:
         raise NotImplementedError
 
@@ -109,7 +107,15 @@ class Impl(Formula):
         return (not self.lhs.eval(valuation)) or self.rhs.eval(valuation)
 
     def __str__(self) -> str:
-        return f"{self.lhs} >> {self.rhs}"
+        left = str(self.lhs)
+        right = str(self.rhs)
+
+        if not isinstance(self.lhs, (Atom, Neg)):
+            left = f"({left})"
+        if not isinstance(self.rhs, (Atom, Neg)):
+            right = f"({right})"
+
+        return f"{left} >> {right}"
 
 
 @dataclass(frozen=True)
@@ -124,7 +130,15 @@ class Bicond(Formula):
         return self.lhs.eval(valuation) == self.rhs.eval(valuation)
 
     def __str__(self) -> str:
-        return f"{self.lhs} <> {self.rhs}"
+        left = str(self.lhs)
+        right = str(self.rhs)
+
+        if not isinstance(self.lhs, (Atom, Neg)):
+            left = f"({left})"
+        if not isinstance(self.rhs, (Atom, Neg)):
+            right = f"({right})"
+
+        return f"{left} <> {right}"
 
 
 _TOKEN_RE = re.compile(r"\s*(>>|<>|~|&|\||\(|\)|[A-Za-z_]\w*)")
@@ -133,7 +147,6 @@ _ATOM_RE = re.compile(r"^[A-Za-z_]\w*$")
 
 class _Parser:
     def __init__(self, text: str):
-        self.text = text
         self.tokens = self._tokenize(text)
         self.pos = 0
 
@@ -148,8 +161,7 @@ class _Parser:
                     index += 1
                     continue
                 raise SyntaxError(f"Invalid token near: {text[index:index + 10]!r}")
-            token = match.group(1)
-            tokens.append(token)
+            tokens.append(match.group(1))
             index = match.end()
         return tokens
 
@@ -333,7 +345,6 @@ Clause = frozenset[tuple[str, bool]]
 
 
 def to_clauses(formula: Formula) -> set[Clause]:
-    """Convert a formula to a set of CNF clauses."""
     cnf = to_cnf(formula)
     clauses: set[Clause] = set()
 

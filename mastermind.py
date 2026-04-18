@@ -3,8 +3,8 @@ from __future__ import annotations
 from itertools import permutations
 
 from belief_base import BeliefBase
-from logic import Atom, Conj, Disj, Neg
-from revision import revision
+from logic import Atom, Conj, Disj, Formula, Neg
+from revision import expansion
 
 COLORS = ["R", "G", "B", "Y", "O", "P"]
 N_POSITIONS = 4
@@ -34,11 +34,14 @@ def _score(guess: list[int], secret: list[int]) -> tuple[int, int]:
             guess_counts[guess[index]] = guess_counts.get(guess[index], 0) + 1
             secret_counts[secret[index]] = secret_counts.get(secret[index], 0) + 1
 
-    white = sum(min(guess_counts.get(color, 0), secret_counts.get(color, 0)) for color in set(guess_counts) | set(secret_counts))
+    white = sum(
+        min(guess_counts.get(color, 0), secret_counts.get(color, 0))
+        for color in set(guess_counts) | set(secret_counts)
+    )
     return black, white
 
 
-def _background_knowledge():
+def _background_knowledge() -> list[Disj]:
     constraints = []
 
     for position in range(N_POSITIONS):
@@ -57,7 +60,7 @@ def _background_knowledge():
     return constraints
 
 
-def _encode_feedback(guess: list[int], black: int, white: int):
+def _encode_feedback(guess: list[int], black: int, white: int) -> Formula:
     matching_codes = []
     for code in ALL_CODES:
         if _score(guess, code) == (black, white):
@@ -70,15 +73,7 @@ def _encode_feedback(guess: list[int], black: int, white: int):
     return Disj(*matching_codes)
 
 
-def _mastermind_entails(formulas, query):
-    for code in ALL_CODES:
-        valuation = _code_to_valuation(code)
-        if all(formula.eval(valuation) for formula in formulas) and not query.eval(valuation):
-            return False
-    return True
-
-
-def _consistent_codes(formulas):
+def _consistent_codes(formulas: list[Formula]) -> list[list[int]]:
     valid = []
     for code in ALL_CODES:
         valuation = _code_to_valuation(code)
@@ -104,9 +99,7 @@ class Solver:
         candidates = self._candidates()
         self.turn += 1
 
-        if self.turn == 1:
-            return [0, 1, 2, 3]
-        if not candidates:
+        if self.turn == 1 or not candidates:
             return [0, 1, 2, 3]
         if len(candidates) <= 2:
             return candidates[0]
@@ -114,12 +107,10 @@ class Solver:
 
     def observe(self, guess: list[int], black: int, white: int) -> None:
         feedback = _encode_feedback(guess, black, white)
-        self.belief_base = revision(
-            self.belief_base,
-            feedback,
-            priority=5,
-            entails_fn=_mastermind_entails,
-        )
+        updated = expansion(self.belief_base, feedback, priority=5)
+        if not _consistent_codes(updated.formulas()):
+            raise ValueError("Inconsistent feedback")
+        self.belief_base = updated
         self._cache = None
 
     def remaining(self) -> int:

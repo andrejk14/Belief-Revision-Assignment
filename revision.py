@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from itertools import combinations
-from typing import Callable
 
 from belief_base import BeliefBase
 from logic import Formula, Neg, is_tautology
 from resolution import entails as default_entails
 
+WeightedBelief = tuple[Formula, int]
+Remainder = list[WeightedBelief]
 EntailsFn = Callable[[list[Formula], Formula], bool]
 
 
@@ -21,12 +23,6 @@ def contraction(
     phi: Formula,
     entails_fn: EntailsFn | None = None,
 ) -> BeliefBase:
-    """Priority-guided partial meet contraction.
-
-    We compute all maximal remainders that do not entail ``phi``, keep the
-    highest-ranked ones according to formula priorities, and return their
-    intersection.
-    """
     entails_fn = entails_fn or default_entails
     belief_items = belief_base.items()
     formulas = [formula for formula, _ in belief_items]
@@ -36,23 +32,13 @@ def contraction(
     if is_tautology(phi):
         return belief_base.copy()
 
-    remainders = _find_remainders(belief_items, phi, entails_fn)
+    remainders = _maximal_non_entailing_subsets(belief_items, phi, entails_fn)
     if not remainders:
         return BeliefBase()
 
-    scored_remainders = [(remainder, _priority_score(remainder)) for remainder in remainders]
-    best_score = max(score for _, score in scored_remainders)
-    selected_remainders = [remainder for remainder, score in scored_remainders if score == best_score]
-
-    common_beliefs = set(selected_remainders[0])
-    for remainder in selected_remainders[1:]:
-        common_beliefs &= set(remainder)
-
-    result = BeliefBase()
-    for formula, belief_priority in belief_items:
-        if (formula, belief_priority) in common_beliefs:
-            result.add(formula, belief_priority)
-    return result
+    preferred_remainders = _preferred_remainders(remainders)
+    retained_beliefs = _intersect_remainders(preferred_remainders)
+    return _build_belief_base(belief_items, retained_beliefs)
 
 
 def revision(
@@ -61,17 +47,15 @@ def revision(
     priority: int = 1,
     entails_fn: EntailsFn | None = None,
 ) -> BeliefBase:
-    """Levi identity: B * φ = (B ÷ ~φ) + φ."""
     contracted = contraction(belief_base, Neg(phi), entails_fn=entails_fn)
     return expansion(contracted, phi, priority)
 
 
-def _find_remainders(
-    beliefs: list[tuple[Formula, int]],
+def _maximal_non_entailing_subsets(
+    beliefs: list[WeightedBelief],
     phi: Formula,
     entails_fn: EntailsFn,
-) -> list[list[tuple[Formula, int]]]:
-    """Return all maximal subsets that do not entail phi."""
+) -> list[Remainder]:
     n_beliefs = len(beliefs)
     non_entailing_indices: list[frozenset[int]] = []
 
@@ -87,18 +71,33 @@ def _find_remainders(
             maximal_indices.append(candidate)
 
     maximal_indices.sort(key=lambda index_set: (-len(index_set), tuple(sorted(index_set))))
-
-    return [
-        [beliefs[index] for index in sorted(index_set)]
-        for index_set in maximal_indices
-    ]
+    return [[beliefs[index] for index in sorted(index_set)] for index_set in maximal_indices]
 
 
-def _priority_score(remainder: list[tuple[Formula, int]]) -> tuple[int, tuple[int, ...], int]:
-    """Lexicographic score for selecting preferred remainders.
+def _preferred_remainders(remainders: list[Remainder]) -> list[Remainder]:
+    scored_remainders = [(remainder, _priority_score(remainder)) for remainder in remainders]
+    best_score = max(score for _, score in scored_remainders)
+    return [remainder for remainder, score in scored_remainders if score == best_score]
 
-    Higher total priority wins first; ties are broken by stronger retained
-    priorities, then by subset size.
-    """
+
+def _intersect_remainders(remainders: list[Remainder]) -> set[WeightedBelief]:
+    shared_beliefs = set(remainders[0])
+    for remainder in remainders[1:]:
+        shared_beliefs.intersection_update(remainder)
+    return shared_beliefs
+
+
+def _build_belief_base(
+    belief_items: list[WeightedBelief],
+    retained_beliefs: set[WeightedBelief],
+) -> BeliefBase:
+    result = BeliefBase()
+    for formula, priority in belief_items:
+        if (formula, priority) in retained_beliefs:
+            result.add(formula, priority)
+    return result
+
+
+def _priority_score(remainder: Remainder) -> tuple[int, tuple[int, ...], int]:
     priorities = sorted((priority for _, priority in remainder), reverse=True)
     return (sum(priorities), tuple(priorities), len(remainder))
