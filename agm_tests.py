@@ -1,202 +1,117 @@
-from logic import parse, Neg, Conj, Bicond, is_tautology, is_satisfiable
-from resolution import entails
+from __future__ import annotations
+
+import unittest
+
 from belief_base import BeliefBase
-from revision import expansion, contraction, revision
-
-_passed = 0
-_failed = 0
-
-
-def _check(tag, cond, msg=""):
-    global _passed, _failed
-    if cond:
-        _passed += 1
-    else:
-        _failed += 1
-        print(f"  FAIL [{tag}]: {msg}")
+from logic import Bicond, Conj, Neg, is_satisfiable, is_tautology, parse
+from resolution import entails
+from revision import contraction, expansion, revision
 
 
 def _is_consistent(formulas):
     if not formulas:
         return True
-    c = formulas[0]
-    for f in formulas[1:]:
-        c = Conj(c, f)
-    return is_satisfiable(c)
+    return is_satisfiable(Conj(*formulas))
 
 
-def _logically_equiv(fs1, fs2):
-    # check if two sets of formulas have the same logical closure
-    for f in fs1:
-        if not entails(fs2, f):
-            return False
-    for f in fs2:
-        if not entails(fs1, f):
-            return False
-    return True
+def _closure_equivalent(left, right):
+    return all(entails(left, formula) for formula in right) and all(entails(right, formula) for formula in left)
 
 
-def test_success():
-    print("Testing success postulate...")
+class RevisionPostulateTests(unittest.TestCase):
+    def test_success(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 2)
+        bb.add(parse("q"), 1)
 
-    bb = BeliefBase()
-    bb.add(parse("p"), 2)
-    bb.add(parse("q"), 1)
+        self.assertTrue(entails(revision(bb, parse("r")).formulas(), parse("r")))
+        self.assertTrue(entails(revision(bb, parse("~p")).formulas(), parse("~p")))
+        self.assertTrue(entails(revision(bb, parse("p & r")).formulas(), parse("p & r")))
+        self.assertTrue(entails(revision(BeliefBase(), parse("a")).formulas(), parse("a")))
 
-    r = revision(bb, parse("r"))
-    _check("success-1", entails(r.formulas(), parse("r")),
-           "r not entailed after revising by r")
+    def test_inclusion(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 2)
+        bb.add(parse("q"), 1)
 
-    r2 = revision(bb, parse("~p"))
-    _check("success-2", entails(r2.formulas(), parse("~p")),
-           "~p not entailed after revising by ~p")
+        phi = parse("r")
+        revised = revision(bb, phi)
+        expanded = expansion(bb, phi)
+        for formula in revised.formulas():
+            self.assertTrue(entails(expanded.formulas(), formula))
 
-    r3 = revision(bb, parse("p & r"))
-    _check("success-3", entails(r3.formulas(), parse("p & r")),
-           "p&r not entailed after revising by p&r")
+        bb2 = BeliefBase()
+        bb2.add(parse("p"), 2)
+        bb2.add(parse("p >> q"), 1)
+        revised2 = revision(bb2, parse("~q"))
+        expanded2 = expansion(bb2, parse("~q"))
+        for formula in revised2.formulas():
+            self.assertTrue(entails(expanded2.formulas(), formula))
 
-    # empty base
-    empty = BeliefBase()
-    r4 = revision(empty, parse("a"))
-    _check("success-empty", entails(r4.formulas(), parse("a")),
-           "a not entailed after revising empty base")
+    def test_vacuity(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 2)
+        bb.add(parse("q"), 1)
+        phi = parse("r")
+        self.assertFalse(entails(bb.formulas(), Neg(phi)))
+        self.assertTrue(_closure_equivalent(revision(bb, phi).formulas(), expansion(bb, phi).formulas()))
 
+        bb2 = BeliefBase()
+        bb2.add(parse("a"), 2)
+        phi2 = parse("b | c")
+        self.assertFalse(entails(bb2.formulas(), Neg(phi2)))
+        self.assertTrue(_closure_equivalent(revision(bb2, phi2).formulas(), expansion(bb2, phi2).formulas()))
 
-# ---- (K*2) Inclusion: B*phi <= Cn(B+phi) ----
+    def test_consistency(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 2)
+        bb.add(parse("q"), 1)
+        self.assertTrue(_is_consistent(revision(bb, parse("~p")).formulas()))
 
-def test_inclusion():
-    print("Testing inclusion postulate...")
+        bb2 = BeliefBase()
+        bb2.add(parse("p"), 3)
+        bb2.add(parse("p >> q"), 2)
+        bb2.add(parse("q >> r"), 1)
+        self.assertTrue(_is_consistent(revision(bb2, parse("~r")).formulas()))
 
-    bb = BeliefBase()
-    bb.add(parse("p"), 2)
-    bb.add(parse("q"), 1)
-    phi = parse("r")
+        bb3 = BeliefBase()
+        bb3.add(parse("a"), 1)
+        self.assertTrue(_is_consistent(revision(bb3, parse("~a")).formulas()))
 
-    rev = revision(bb, phi)
-    exp = expansion(bb, phi)
-    for f in rev.formulas():
-        _check("incl-1", entails(exp.formulas(), f),
-               f"{f} in B*phi but not entailed by B+phi")
+    def test_extensionality(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 2)
+        bb.add(parse("q"), 1)
 
-    # with actual conflict
-    bb2 = BeliefBase()
-    bb2.add(parse("p"), 2)
-    bb2.add(parse("p >> q"), 1)
+        phi = parse("~~r")
+        psi = parse("r")
+        self.assertTrue(is_tautology(Bicond(phi, psi)))
+        self.assertTrue(_closure_equivalent(revision(bb, phi).formulas(), revision(bb, psi).formulas()))
 
-    rev2 = revision(bb2, parse("~q"))
-    exp2 = expansion(bb2, parse("~q"))
-    for f in rev2.formulas():
-        _check("incl-2", entails(exp2.formulas(), f),
-               f"{f} in B*phi but not entailed by B+phi")
+        bb2 = BeliefBase()
+        bb2.add(parse("r"), 2)
+        self.assertTrue(_closure_equivalent(revision(bb2, parse("p | q")).formulas(), revision(bb2, parse("q | p")).formulas()))
 
+    def test_contraction_uses_all_maximal_remainders(self):
+        bb = BeliefBase()
+        bb.add(parse("(p >> p) | r >> q & p"), 3)
+        bb.add(parse("r <> p"), 1)
+        bb.add(parse("~((~p >> p) & p)"), 1)
 
-def test_vacuity():
-    print("Testing vacuity postulate...")
+        contracted = contraction(bb, parse("r"))
 
-    bb = BeliefBase()
-    bb.add(parse("p"), 2)
-    bb.add(parse("q"), 1)
-    phi = parse("r")
-
-    assert not entails(bb.formulas(), Neg(phi)), "precondition broken"
-
-    rev = revision(bb, phi)
-    exp = expansion(bb, phi)
-    _check("vacuity-1", _logically_equiv(rev.formulas(), exp.formulas()),
-           "B*phi and B+phi not logically equivalent")
-
-    # also try with a more complex phi
-    bb2 = BeliefBase()
-    bb2.add(parse("a"), 2)
-    phi2 = parse("b | c")
-    assert not entails(bb2.formulas(), Neg(phi2))
-
-    rev2 = revision(bb2, phi2)
-    exp2 = expansion(bb2, phi2)
-    _check("vacuity-2", _logically_equiv(rev2.formulas(), exp2.formulas()),
-           "B*phi and B+phi not equiv for b|c")
-
-
-def test_consistency():
-    print("Testing consistency postulate...")
-
-    bb = BeliefBase()
-    bb.add(parse("p"), 2)
-    bb.add(parse("q"), 1)
-
-    r = revision(bb, parse("~p"))
-    _check("consist-1", _is_consistent(r.formulas()),
-           "B*~p is inconsistent")
-
-    # longer implication chain
-    bb2 = BeliefBase()
-    bb2.add(parse("p"), 3)
-    bb2.add(parse("p >> q"), 2)
-    bb2.add(parse("q >> r"), 1)
-
-    r2 = revision(bb2, parse("~r"))
-    _check("consist-2", _is_consistent(r2.formulas()),
-           "B*~r is inconsistent")
-
-    # single belief
-    bb3 = BeliefBase()
-    bb3.add(parse("a"), 1)
-    r3 = revision(bb3, parse("~a"))
-    _check("consist-3", _is_consistent(r3.formulas()),
-           "B*~a inconsistent on single-element base")
+        self.assertEqual(len(contracted.formulas()), 1)
+        self.assertEqual(str(contracted.formulas()[0]), str(parse("(p >> p) | r >> q & p")))
+        self.assertFalse(entails(contracted.formulas(), parse("r")))
 
 
-def test_extensionality():
-    print("Testing extensionality postulate...")
-
-    bb = BeliefBase()
-    bb.add(parse("p"), 2)
-    bb.add(parse("q"), 1)
-
-    # ~~r <=> r
-    phi = parse("~~r")
-    psi = parse("r")
-    assert is_tautology(Bicond(phi, psi))
-
-    r1 = revision(bb, phi)
-    r2 = revision(bb, psi)
-    _check("ext-1", _logically_equiv(r1.formulas(), r2.formulas()),
-           "B*(~~r) != B*r")
-
-    # p|q <=> q|p
-    bb2 = BeliefBase()
-    bb2.add(parse("r"), 2)
-    ra = revision(bb2, parse("p | q"))
-    rb = revision(bb2, parse("q | p"))
-    _check("ext-2", _logically_equiv(ra.formulas(), rb.formulas()),
-           "B*(p|q) != B*(q|p)")
-
-
-def run_all():
-    global _passed, _failed
-    _passed = 0
-    _failed = 0
-
-    print("=" * 50)
-    print("AGM postulate tests")
-    print("=" * 50)
-
-    test_success()
-    test_inclusion()
-    test_vacuity()
-    test_consistency()
-    test_extensionality()
-
-    print("-" * 50)
-    total = _passed + _failed
-    print(f"{_passed}/{total} checks passed.")
-    if _failed:
-        print(f"{_failed} FAILED.")
-    else:
-        print("All checks passed.")
-    print("=" * 50)
-    return _failed == 0
+class ParserTests(unittest.TestCase):
+    def test_rejects_operator_tokens_as_atoms(self):
+        for token in (">>", "<>", "&", "|", ")"):
+            with self.subTest(token=token):
+                with self.assertRaises(SyntaxError):
+                    parse(token)
 
 
 if __name__ == "__main__":
-    run_all()
+    unittest.main(verbosity=2)

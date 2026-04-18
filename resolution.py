@@ -1,81 +1,88 @@
-from logic import Formula, Neg, Conj, to_clauses, is_satisfiable
+from __future__ import annotations
 
-CLAUSE_LIMIT = 50000
+from itertools import combinations
+
+from logic import Clause, Conj, Formula, Neg, is_satisfiable, is_tautology, to_clauses
+
+CLAUSE_LIMIT = 50_000
 
 
-def entails(kb, query):
-    # refutation: KB ∪ {¬query} unsatisfiable => KB |= query
-    clauses = set()
-    for f in kb:
-        clauses |= to_clauses(f)
+def entails(knowledge_base: list[Formula], query: Formula) -> bool:
+    """Resolution-based entailment with a semantic fallback for large clause sets."""
+    clauses: set[Clause] = set()
+    for formula in knowledge_base:
+        clauses |= to_clauses(formula)
     clauses |= to_clauses(Neg(query))
-    res = _resolve(clauses)
-    if res is None:
-        # resolution blew up, fall back to truth tables
-        return _semantic_entails(kb, query)
-    return res
+
+    result = _resolve(clauses)
+    if result is None:
+        return _semantic_entails(knowledge_base, query)
+    return result
 
 
-def is_inconsistent(formulas):
-    clauses = set()
-    for f in formulas:
-        clauses |= to_clauses(f)
-    res = _resolve(clauses)
-    if res is None:
+def is_inconsistent(formulas: list[Formula]) -> bool:
+    clauses: set[Clause] = set()
+    for formula in formulas:
+        clauses |= to_clauses(formula)
+
+    result = _resolve(clauses)
+    if result is None:
         return _semantic_inconsistent(formulas)
-    return res
+    return result
 
 
-def _resolve(clauses):
-    clauses = {c for c in clauses if not _is_taut(c)}
+def _resolve(clauses: set[Clause]) -> bool | None:
+    clauses = {clause for clause in clauses if not _is_tautological_clause(clause)}
+    processed_pairs: set[tuple[Clause, Clause]] = set()
+
     while True:
-        new = set()
-        clist = list(clauses)
-        for i in range(len(clist)):
-            for j in range(i + 1, len(clist)):
-                resolvents = _resolve_pair(clist[i], clist[j])
-                for r in resolvents:
-                    if len(r) == 0:
-                        return True
-                    if not _is_taut(r):
-                        new.add(r)
-        if new <= clauses:
+        new_clauses: set[Clause] = set()
+        clause_list = sorted(clauses, key=lambda clause: (len(clause), sorted(clause)))
+
+        for first, second in combinations(clause_list, 2):
+            pair = (first, second)
+            if pair in processed_pairs:
+                continue
+            processed_pairs.add(pair)
+
+            for resolvent in _resolve_pair(first, second):
+                if not resolvent:
+                    return True
+                if not _is_tautological_clause(resolvent):
+                    new_clauses.add(resolvent)
+
+        if new_clauses <= clauses:
             return False
-        clauses |= new
-        # print(f"clauses: {len(clauses)}")
+
+        clauses |= new_clauses
         if len(clauses) > CLAUSE_LIMIT:
-            return None  # too many clauses, give up
+            return None
 
 
-def _resolve_pair(c1, c2):
-    out = []
-    for (name, pol) in c1:
-        if (name, not pol) in c2:
-            merged = (c1 - {(name, pol)}) | (c2 - {(name, not pol)})
-            out.append(frozenset(merged))
-    return out
+def _resolve_pair(left: Clause, right: Clause) -> set[Clause]:
+    resolvents: set[Clause] = set()
+    for atom, polarity in left:
+        complement = (atom, not polarity)
+        if complement in right:
+            merged = (left - {(atom, polarity)}) | (right - {complement})
+            resolvents.add(frozenset(merged))
+    return resolvents
 
 
-def _is_taut(clause):
-    pos = {n for n, p in clause if p}
-    neg = {n for n, p in clause if not p}
-    return bool(pos & neg)
+def _is_tautological_clause(clause: Clause) -> bool:
+    positive = {atom for atom, polarity in clause if polarity}
+    negative = {atom for atom, polarity in clause if not polarity}
+    return bool(positive & negative)
 
 
-def _semantic_entails(kb, query):
-    if not kb:
-        from logic import is_tautology
+def _semantic_entails(knowledge_base: list[Formula], query: Formula) -> bool:
+    if not knowledge_base:
         return is_tautology(query)
-    conj = kb[0]
-    for f in kb[1:]:
-        conj = Conj(conj, f)
-    return not is_satisfiable(Conj(conj, Neg(query)))
+    conjunction = Conj(*knowledge_base)
+    return not is_satisfiable(Conj(conjunction, Neg(query)))
 
 
-def _semantic_inconsistent(formulas):
+def _semantic_inconsistent(formulas: list[Formula]) -> bool:
     if not formulas:
         return False
-    conj = formulas[0]
-    for f in formulas[1:]:
-        conj = Conj(conj, f)
-    return not is_satisfiable(conj)
+    return not is_satisfiable(Conj(*formulas))

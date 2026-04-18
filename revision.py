@@ -1,59 +1,88 @@
 from __future__ import annotations
+
 from itertools import combinations
+from typing import Callable
+
+from belief_base import BeliefBase
 from logic import Formula, Neg, is_tautology
 from resolution import entails as default_entails
-from belief_base import BeliefBase
+
+EntailsFn = Callable[[list[Formula], Formula], bool]
 
 
-def expansion(bb, phi, priority=1):
-    result = bb.copy()
+def expansion(belief_base: BeliefBase, phi: Formula, priority: int = 1) -> BeliefBase:
+    result = belief_base.copy()
     result.add(phi, priority)
     return result
 
 
-def contraction(bb, phi, entails_fn=None):
-    # partial meet contraction with priority-based selection
-    if entails_fn is None:
-        entails_fn = default_entails
-
-    beliefs = bb.items()
-    formulas = [f for f, _ in beliefs]
+def contraction(
+    belief_base: BeliefBase,
+    phi: Formula,
+    entails_fn: EntailsFn | None = None,
+) -> BeliefBase:
+    """Priority-guided partial meet contraction."""
+    entails_fn = entails_fn or default_entails
+    formulas = belief_base.formulas()
 
     if not entails_fn(formulas, phi):
-        return bb.copy()
+        return belief_base.copy()
     if is_tautology(phi):
-        return bb.copy()  # cant contract a tautology
+        return belief_base.copy()
 
-    remainders = _find_remainders(beliefs, phi, entails_fn)
+    remainders = _find_remainders(belief_base.items(), phi, entails_fn)
     if not remainders:
         return BeliefBase()
 
-    # pick the remainder that keeps the most important beliefs
-    best = max(remainders, key=lambda r: sum(p for _, p in r))
-    out = BeliefBase()
-    for f, p in best:
-        out.add(f, p)
-    return out
+    best = max(
+        remainders,
+        key=lambda remainder: (
+            sum(priority for _, priority in remainder),
+            len(remainder),
+            tuple(sorted((priority, str(formula)) for formula, priority in remainder)),
+        ),
+    )
+
+    result = BeliefBase()
+    for formula, priority in best:
+        result.add(formula, priority)
+    return result
 
 
-def revision(bb, phi, priority=1, entails_fn=None):
-    # Levi identity: B * phi = (B ÷ ~phi) + phi
-    contracted = contraction(bb, Neg(phi), entails_fn=entails_fn)
+def revision(
+    belief_base: BeliefBase,
+    phi: Formula,
+    priority: int = 1,
+    entails_fn: EntailsFn | None = None,
+) -> BeliefBase:
+    """Levi identity: B * φ = (B ÷ ~φ) + φ."""
+    contracted = contraction(belief_base, Neg(phi), entails_fn=entails_fn)
     return expansion(contracted, phi, priority)
 
 
-def _find_remainders(beliefs, phi, entails_fn):
-    # try dropping k beliefs at a time, starting from k=1
-    # first k that breaks entailment gives the maximal remainders
-    n = len(beliefs)
-    for k in range(1, n + 1):
-        found = []
-        for dropped in combinations(range(n), k):
-            keep = set(range(n)) - set(dropped)
-            subset = [beliefs[i] for i in sorted(keep)]
-            fs = [f for f, _ in subset]
-            if not entails_fn(fs, phi):
-                found.append(subset)
-        if found:
-            return found
-    return []
+def _find_remainders(
+    beliefs: list[tuple[Formula, int]],
+    phi: Formula,
+    entails_fn: EntailsFn,
+) -> list[list[tuple[Formula, int]]]:
+    """Return all maximal subsets that do not entail phi."""
+    n_beliefs = len(beliefs)
+    non_entailing_indices: list[frozenset[int]] = []
+
+    for size in range(n_beliefs + 1):
+        for indices in combinations(range(n_beliefs), size):
+            subset_formulas = [beliefs[index][0] for index in indices]
+            if not entails_fn(subset_formulas, phi):
+                non_entailing_indices.append(frozenset(indices))
+
+    maximal_indices: list[frozenset[int]] = []
+    for candidate in non_entailing_indices:
+        if not any(candidate < other for other in non_entailing_indices):
+            maximal_indices.append(candidate)
+
+    maximal_indices.sort(key=lambda index_set: (-len(index_set), tuple(sorted(index_set))))
+
+    return [
+        [beliefs[index] for index in sorted(index_set)]
+        for index_set in maximal_indices
+    ]

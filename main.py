@@ -1,83 +1,70 @@
-from logic import parse
-from belief_base import BeliefBase
-from revision import expansion, contraction, revision
-from resolution import entails
-from agm_tests import run_all
-from mastermind import play_auto, N_COL, N_POS
+from __future__ import annotations
+
 import random
+import unittest
 
-def demos():
-    print("=" * 55)
-    print("BELIEF REVISION ENGINE")
-    print("=" * 55)
+import agm_tests
+from belief_base import BeliefBase
+from logic import parse
+from mastermind import N_COLORS, N_POSITIONS, play_auto
+from resolution import entails
+from revision import contraction, expansion, revision
 
-    # implication chain: p->q->r, then revise by ~r
-    print("\n-- Implication chain + revision --")
+
+def demo_belief_revision() -> None:
+    print("=" * 60)
+    print("Belief Revision Engine")
+    print("=" * 60)
+
+    print("\n1. Revision over an implication chain")
     bb = BeliefBase()
     bb.add(parse("p"), 3)
     bb.add(parse("p >> q"), 2)
     bb.add(parse("q >> r"), 1)
     print(bb)
-    print(f"  entails r? {entails(bb.formulas(), parse('r'))}")
+    print(f"Entails r? {entails(bb.formulas(), parse('r'))}")
 
-    bb2 = revision(bb, parse("~r"), 2)
+    revised = revision(bb, parse("~r"), priority=2)
     print("After revising by ~r:")
+    print(revised)
+    print(f"Entails ~r? {entails(revised.formulas(), parse('~r'))}")
+    print(f"Entails r?  {entails(revised.formulas(), parse('r'))}")
+
+    print("\n2. Expansion")
+    bb2 = BeliefBase()
+    bb2.add(parse("sunny"), 2)
+    bb2.add(parse("sunny >> warm"), 1)
     print(bb2)
-    print(f"  entails ~r? {entails(bb2.formulas(), parse('~r'))}")
-    print(f"  entails r?  {entails(bb2.formulas(), parse('r'))}")
-
-    # expansion
-    print("\n-- Expansion --")
-    bb3 = BeliefBase()
-    bb3.add(parse("sunny"), 2)
-    bb3.add(parse("sunny >> warm"), 1)
-    print(bb3)
-    bb4 = expansion(bb3, parse("windy"), 1)
+    expanded = expansion(bb2, parse("windy"), priority=1)
     print("After expanding with windy:")
-    print(bb4)
+    print(expanded)
 
-    # contraction
-    print("\n-- Contraction --")
-    bb5 = BeliefBase()
-    bb5.add(parse("a"), 3)
-    bb5.add(parse("b"), 2)
-    bb5.add(parse("a >> c"), 1)
-    print(bb5)
-    print(f"  entails c? {entails(bb5.formulas(), parse('c'))}")
-
-    bb6 = contraction(bb5, parse("c"))
-    print("After contracting c:")
-    print(bb6)
-    print(f"  entails c? {entails(bb6.formulas(), parse('c'))}")
-
-    # contradicting existing beliefs
-    print("\n-- Handling contradictions --")
-    bb7 = BeliefBase()
-    bb7.add(parse("bird"), 3)
-    bb7.add(parse("bird >> flies"), 2)
-    print(bb7)
-    print(f"  entails flies? {entails(bb7.formulas(), parse('flies'))}")
-
-    bb8 = revision(bb7, parse("~flies"), 3)
-    print("After revising by ~flies:")
-    print(bb8)
-    print(f"  entails flies?  {entails(bb8.formulas(), parse('flies'))}")
-    print(f"  entails ~flies? {entails(bb8.formulas(), parse('~flies'))}")
+    print("\n3. Contraction")
+    bb3 = BeliefBase()
+    bb3.add(parse("a"), 3)
+    bb3.add(parse("b"), 2)
+    bb3.add(parse("a >> c"), 1)
+    print(bb3)
+    print(f"Entails c? {entails(bb3.formulas(), parse('c'))}")
+    contracted = contraction(bb3, parse("c"))
+    print("After contracting by c:")
+    print(contracted)
+    print(f"Entails c? {entails(contracted.formulas(), parse('c'))}")
 
 
-def main():
-    demos()
-
-    print()
-    run_all()
-
-    print()
-    print("=" * 55)
-    print("MASTERMIND -- auto play")
-    print("=" * 55)
-    secret = random.sample(range(N_COL), N_POS)
+def demo_mastermind() -> None:
+    print("\n" + "=" * 60)
+    print("Mastermind")
+    print("=" * 60)
+    secret = random.sample(range(N_COLORS), N_POSITIONS)
     play_auto(secret)
-    print("\n(run `python3 mastermind.py` for interactive mode)")
+
 
 if __name__ == "__main__":
-    main()
+    demo_belief_revision()
+    print()
+    suite = unittest.defaultTestLoader.loadTestsFromModule(agm_tests)
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if not result.wasSuccessful():
+        raise SystemExit(1)
+    demo_mastermind()
