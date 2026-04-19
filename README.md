@@ -1,35 +1,46 @@
 # Belief Revision Engine
 
-This repository contains a propositional-logic belief revision engine based on course concepts such as CNF conversion, resolution, AGM revision, and partial meet contraction.
+Propositional-logic belief revision engine covering CNF conversion, resolution-based entailment, partial meet contraction, and AGM revision via the Levi identity. Includes an optional Mastermind code-breaker built on top of the engine.
+
+Requires Python 3.10+ and has no third-party dependencies.
 
 ## Files
 
-- `belief_base.py`: belief base with priorities
+- `belief_base.py`: belief base with priority-tagged formulas
 - `logic.py`: formula classes, parser, CNF conversion, satisfiability and tautology helpers
 - `resolution.py`: entailment by resolution refutation, with a semantic fallback for large clause sets
-- `revision.py`: expansion, contraction, and revision
-- `agm_tests.py`: tests for the required AGM postulates
-- `mastermind.py`: optional Mastermind code-breaker
-- `main.py`: demo runner
+- `revision.py`: expansion, partial meet contraction, and revision (Levi identity)
+- `agm_tests.py`: `unittest` suite for the AGM postulates, contraction properties, resolution, and the parser
+- `mastermind.py`: optional Mastermind code-breaker driven by belief revision
+- `main.py`: demo runner walking through each stage of the assignment
 
 ## Run
 
 ```bash
-python3 agm_tests.py
-python3 main.py
-python3 mastermind.py
-python3 mastermind.py --auto
+python3 agm_tests.py             # run the full test suite
+python3 main.py                  # demo of all stages + Mastermind
+python3 mastermind.py            # interactive Mastermind
+python3 mastermind.py --auto     # auto game with a random secret
 ```
+
+## Tests
+
+`python3 agm_tests.py` runs four groups of tests:
+
+- **Revision postulates** (Success, Inclusion, Vacuity, Consistency, Extensionality, Closure)
+- **Contraction postulates** (Success, Inclusion, Vacuity, Recovery, Extensionality)
+- **Resolution** (modus ponens, modus tollens, disjunctive syllogism, inconsistency detection, tautology entailment)
+- **Parser** (error handling for malformed formulas)
 
 ## Formula syntax
 
 Operators from lowest to highest precedence:
 
-1. `<>`
-2. `>>`
-3. `|`
-4. `&`
-5. `~`
+1. `<>` — biconditional
+2. `>>` — implication
+3. `|` — disjunction
+4. `&` — conjunction
+5. `~` — negation
 
 Examples:
 
