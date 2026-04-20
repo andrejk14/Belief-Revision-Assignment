@@ -17,89 +17,80 @@ def _atom(position: int, color: int) -> Atom:
 
 
 def _code_to_valuation(code: list[int]) -> dict[str, bool]:
-    valuation: dict[str, bool] = {}
+    v: dict[str, bool] = {}
     for position in range(N_POSITIONS):
         for color in range(N_COLORS):
-            valuation[f"C{position}_{color}"] = code[position] == color
-    return valuation
+            v[f"C{position}_{color}"] = code[position] == color
+    return v
 
 
 def _score(guess: list[int], secret: list[int]) -> tuple[int, int]:
     black = sum(g == s for g, s in zip(guess, secret))
     guess_counts: dict[int, int] = {}
     secret_counts: dict[int, int] = {}
-
-    for index in range(N_POSITIONS):
-        if guess[index] != secret[index]:
-            guess_counts[guess[index]] = guess_counts.get(guess[index], 0) + 1
-            secret_counts[secret[index]] = secret_counts.get(secret[index], 0) + 1
-
+    for i in range(N_POSITIONS):
+        if guess[i] != secret[i]:
+            guess_counts[guess[i]] = guess_counts.get(guess[i], 0) + 1
+            secret_counts[secret[i]] = secret_counts.get(secret[i], 0) + 1
     white = sum(
-        min(guess_counts.get(color, 0), secret_counts.get(color, 0))
-        for color in set(guess_counts) | set(secret_counts)
+        min(guess_counts.get(c, 0), secret_counts.get(c, 0))
+        for c in set(guess_counts) | set(secret_counts)
     )
     return black, white
 
 
 def _background_knowledge() -> list[Disj]:
-    constraints = []
-
+    out: list[Disj] = []
     for position in range(N_POSITIONS):
-        constraints.append(Disj(*(_atom(position, color) for color in range(N_COLORS))))
-
+        out.append(Disj(*(_atom(position, c) for c in range(N_COLORS))))
     for position in range(N_POSITIONS):
-        for left in range(N_COLORS):
-            for right in range(left + 1, N_COLORS):
-                constraints.append(Disj(Neg(_atom(position, left)), Neg(_atom(position, right))))
-
+        for c1 in range(N_COLORS):
+            for c2 in range(c1 + 1, N_COLORS):
+                out.append(Disj(Neg(_atom(position, c1)), Neg(_atom(position, c2))))
     for color in range(N_COLORS):
-        for left in range(N_POSITIONS):
-            for right in range(left + 1, N_POSITIONS):
-                constraints.append(Disj(Neg(_atom(left, color)), Neg(_atom(right, color))))
-
-    return constraints
+        for p1 in range(N_POSITIONS):
+            for p2 in range(p1 + 1, N_POSITIONS):
+                out.append(Disj(Neg(_atom(p1, color)), Neg(_atom(p2, color))))
+    return out
 
 
 def _encode_feedback(guess: list[int], black: int, white: int) -> Formula:
-    matching_codes = []
-    for code in ALL_CODES:
-        if _score(guess, code) == (black, white):
-            matching_codes.append(Conj(*(_atom(position, code[position]) for position in range(N_POSITIONS))))
-
-    if not matching_codes:
+    matching = [
+        Conj(*(_atom(p, code[p]) for p in range(N_POSITIONS)))
+        for code in ALL_CODES
+        if _score(guess, code) == (black, white)
+    ]
+    if not matching:
         raise ValueError("Inconsistent feedback")
-    if len(matching_codes) == 1:
-        return matching_codes[0]
-    return Disj(*matching_codes)
+    return matching[0] if len(matching) == 1 else Disj(*matching)
 
 
 def _consistent_codes(formulas: list[Formula]) -> list[list[int]]:
-    valid = []
-    for code in ALL_CODES:
-        valuation = _code_to_valuation(code)
-        if all(formula.eval(valuation) for formula in formulas):
-            valid.append(code)
-    return valid
+    return [
+        code for code in ALL_CODES
+        if all(f.eval(_code_to_valuation(code)) for f in formulas)
+    ]
 
 
 class Solver:
+    BACKGROUND_PRIORITY = 10 # game rules: inviolable
+    FEEDBACK_PRIORITY = 5 # feedback: trusted but in principle revisable
+
     def __init__(self) -> None:
         self._background = BeliefBase()
-        for formula in _background_knowledge():
-            self._background.add(formula, priority=10)
-
+        for f in _background_knowledge():
+            self._background.add(f, self.BACKGROUND_PRIORITY)
         self._feedback = BeliefBase()
-        self.belief_base = BeliefBase()
+        self.belief_base = self._background.copy()
         self.turn = 0
         self._cache: list[list[int]] | None = None
 
-        self._sync_belief_base()
-
-    def _sync_belief_base(self) -> None:
+    def _rebuild(self) -> None:
         combined = self._background.copy()
-        for formula, priority in self._feedback:
-            combined.add(formula, priority)
+        for f, p in self._feedback:
+            combined.add(f, p)
         self.belief_base = combined
+        self._cache = None
 
     def _candidates(self) -> list[list[int]]:
         if self._cache is None:
@@ -110,12 +101,11 @@ class Solver:
         candidates = _consistent_codes(self._background.formulas() + formulas)
         if not candidates:
             return False
-        return all(query.eval(_code_to_valuation(code)) for code in candidates)
+        return all(query.eval(_code_to_valuation(c)) for c in candidates)
 
     def guess(self) -> list[int]:
-        candidates = self._candidates()
         self.turn += 1
-
+        candidates = self._candidates()
         if not candidates:
             raise ValueError("Belief base is inconsistent")
         if self.turn == 1:
@@ -126,63 +116,51 @@ class Solver:
 
     def observe(self, guess: list[int], black: int, white: int) -> None:
         feedback = _encode_feedback(guess, black, white)
-        updated_feedback = revision(
+        self._feedback = revision(
             self._feedback,
             feedback,
-            priority=5,
+            priority=self.FEEDBACK_PRIORITY,
             entails_fn=self._feedback_entails,
         )
-
-        combined_formulas = self._background.formulas() + updated_feedback.formulas()
-        if not _consistent_codes(combined_formulas):
+        if not _consistent_codes(self._background.formulas() + self._feedback.formulas()):
             raise ValueError("Inconsistent feedback")
-
-        self._feedback = updated_feedback
-        self._sync_belief_base()
-        self._cache = None
+        self._rebuild()
 
     def remaining(self) -> int:
         return len(self._candidates())
 
     def _minimax_guess(self, candidates: list[list[int]]) -> list[int]:
-        best_guess = candidates[0]
-        best_worst_case = len(candidates)
-
-        for guess in candidates:
+        best = candidates[0]
+        best_worst = len(candidates)
+        for g in candidates:
             buckets: dict[tuple[int, int], int] = {}
-            for secret in candidates:
-                outcome = _score(guess, secret)
+            for s in candidates:
+                outcome = _score(g, s)
                 buckets[outcome] = buckets.get(outcome, 0) + 1
-
-            worst_case = max(buckets.values())
-            if worst_case < best_worst_case:
-                best_worst_case = worst_case
-                best_guess = guess
-
-        return best_guess
+            worst = max(buckets.values())
+            if worst < best_worst:
+                best_worst = worst
+                best = g
+        return best
 
 
 def code_str(code: list[int]) -> str:
-    return " ".join(COLORS[color] for color in code)
+    return " ".join(COLORS[c] for c in code)
 
 
 def play_auto(secret: list[int]) -> int:
     print(f"Secret: {code_str(secret)}")
     print("-" * 40)
     solver = Solver()
-
     for turn in range(1, 11):
-        guess = solver.guess()
-        black, white = _score(guess, secret)
-
+        g = solver.guess()
+        black, white = _score(g, secret)
         if black == N_POSITIONS:
-            print(f"Turn {turn}: {code_str(guess)}  ->  {black}B {white}W   (1 remaining)")
+            print(f"Turn {turn}: {code_str(g)}  ->  {black}B {white}W   (1 remaining)")
             print(f"Solved in {turn} turns.")
             return turn
-
-        solver.observe(guess, black, white)
-        print(f"Turn {turn}: {code_str(guess)}  ->  {black}B {white}W   ({solver.remaining()} remaining)")
-
+        solver.observe(g, black, white)
+        print(f"Turn {turn}: {code_str(g)}  ->  {black}B {white}W   ({solver.remaining()} remaining)")
     print("Failed to solve in 10 turns.")
     return -1
 
@@ -193,25 +171,22 @@ def play_interactive() -> None:
     print("=" * 40)
     print(f"Colors: {', '.join(COLORS)}")
     print(f"{N_POSITIONS} positions, no repeated colors.")
-
     solver = Solver()
     for turn in range(1, 11):
-        guess = solver.guess()
-        print(f"Guess {turn}: {code_str(guess)}   ({solver.remaining()} possibilities)")
+        g = solver.guess()
+        print(f"Guess {turn}: {code_str(g)}   ({solver.remaining()} possibilities)")
         black = int(input("  Black pegs: "))
         white = int(input("  White pegs: "))
         if black == N_POSITIONS:
             print(f"Solved in {turn} turns.")
             return
-        solver.observe(guess, black, white)
-
+        solver.observe(g, black, white)
     print("Ran out of guesses.")
 
 
 if __name__ == "__main__":
     import random
     import sys
-
     if len(sys.argv) > 1 and sys.argv[1] == "--auto":
         play_auto(random.sample(range(N_COLORS), N_POSITIONS))
     else:

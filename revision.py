@@ -4,101 +4,86 @@ from collections.abc import Callable
 from itertools import combinations
 
 from belief_base import BeliefBase
-from logic import Formula, Neg, is_tautology
-from resolution import entails as default_entails
+from logic import Formula, Neg
+from resolution import entails as resolution_entails
 
 WeightedBelief = tuple[Formula, int]
 Remainder = list[WeightedBelief]
 EntailsFn = Callable[[list[Formula], Formula], bool]
 
 
-def expansion(belief_base: BeliefBase, phi: Formula, priority: int = 1) -> BeliefBase:
-    result = belief_base.copy()
-    result.add(phi, priority)
-    return result
+def expansion(base: BeliefBase, phi: Formula, priority: int = 1) -> BeliefBase:
+    out = base.copy()
+    out.add(phi, priority)
+    return out
 
 
 def contraction(
-    belief_base: BeliefBase,
+    base: BeliefBase,
     phi: Formula,
     entails_fn: EntailsFn | None = None,
 ) -> BeliefBase:
-    entails_fn = entails_fn or default_entails
-    belief_items = belief_base.items()
-    formulas = [formula for formula, _ in belief_items]
+    entails_fn = entails_fn or resolution_entails
+    items = base.items()
+    formulas = [f for f, _ in items]
 
-    if is_tautology(phi):
-        return belief_base.copy()
-    if not entails_fn(formulas, phi):
-        return belief_base.copy()
+    # Tautologies cannot be contracted out; also, if phi is not entailed at all,
+    # there is nothing to remove. Both are identity cases.
+    if entails_fn([], phi) or not entails_fn(formulas, phi):
+        return base.copy()
 
-    remainders = _maximal_non_entailing_subsets(belief_items, phi, entails_fn)
-    if not remainders:
-        return BeliefBase()
+    remainders = _remainders(items, phi, entails_fn)
+    preferred = _select(remainders)
 
-    preferred_remainders = _preferred_remainders(remainders)
-    retained_beliefs = _intersect_remainders(preferred_remainders)
-    return _build_belief_base(belief_items, retained_beliefs)
+    kept = set(preferred[0])
+    for r in preferred[1:]:
+        kept.intersection_update(r)
+    return _rebuild(items, kept)
 
 
 def revision(
-    belief_base: BeliefBase,
+    base: BeliefBase,
     phi: Formula,
     priority: int = 1,
     entails_fn: EntailsFn | None = None,
 ) -> BeliefBase:
-    contracted = contraction(belief_base, Neg(phi), entails_fn=entails_fn)
-    return expansion(contracted, phi, priority)
+    return expansion(contraction(base, Neg(phi), entails_fn=entails_fn), phi, priority)
 
 
-def _maximal_non_entailing_subsets(
+def _remainders(
     beliefs: list[WeightedBelief],
     phi: Formula,
     entails_fn: EntailsFn,
 ) -> list[Remainder]:
-    maximal_indices: list[frozenset[int]] = []
+    n = len(beliefs)
+    maximal: list[frozenset[int]] = []
 
-    for size in range(len(beliefs) + 1):
-        for indices in combinations(range(len(beliefs)), size):
-            candidate = frozenset(indices)
-
-            if any(candidate < other for other in maximal_indices):
+    for size in range(n, -1, -1):
+        for idx in combinations(range(n), size):
+            cand = frozenset(idx)
+            if any(cand < m for m in maximal):
                 continue
-
-            subset_formulas = [beliefs[index][0] for index in indices]
-            if entails_fn(subset_formulas, phi):
+            subset = [beliefs[i][0] for i in idx]
+            if entails_fn(subset, phi):
                 continue
+            maximal.append(cand)
 
-            maximal_indices = [other for other in maximal_indices if not other < candidate]
-            maximal_indices.append(candidate)
-
-    maximal_indices.sort(key=lambda index_set: (-len(index_set), tuple(sorted(index_set))))
-    return [[beliefs[index] for index in sorted(index_set)] for index_set in maximal_indices]
+    return [[beliefs[i] for i in sorted(s)] for s in maximal]
 
 
-def _preferred_remainders(remainders: list[Remainder]) -> list[Remainder]:
-    profiled_remainders = [(remainder, _priority_profile(remainder)) for remainder in remainders]
-    best_profile = max(profile for _, profile in profiled_remainders)
-    return [remainder for remainder, profile in profiled_remainders if profile == best_profile]
+def _select(remainders: list[Remainder]) -> list[Remainder]:
+    profiled = [(r, _profile(r)) for r in remainders]
+    best = max(p for _, p in profiled)
+    return [r for r, p in profiled if p == best]
 
 
-def _intersect_remainders(remainders: list[Remainder]) -> set[WeightedBelief]:
-    shared_beliefs = set(remainders[0])
-    for remainder in remainders[1:]:
-        shared_beliefs.intersection_update(remainder)
-    return shared_beliefs
+def _profile(r: Remainder) -> tuple[int, ...]:
+    return tuple(sorted((p for _, p in r), reverse=True))
 
 
-def _build_belief_base(
-    belief_items: list[WeightedBelief],
-    retained_beliefs: set[WeightedBelief],
-) -> BeliefBase:
-    result = BeliefBase()
-    for formula, priority in belief_items:
-        if (formula, priority) in retained_beliefs:
-            result.add(formula, priority)
-    return result
-
-
-def _priority_profile(remainder: Remainder) -> tuple[int, ...]:
-    return tuple(sorted((priority for _, priority in remainder), reverse=True))
+def _rebuild(items: list[WeightedBelief], kept: set[WeightedBelief]) -> BeliefBase:
+    out = BeliefBase()
+    for formula, priority in items:
+        if (formula, priority) in kept:
+            out.add(formula, priority)
+    return out

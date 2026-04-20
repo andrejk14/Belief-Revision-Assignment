@@ -38,7 +38,7 @@ class Neg(Formula):
         return not self.inner.eval(valuation)
 
     def __str__(self) -> str:
-        if isinstance(self.inner, Atom):
+        if isinstance(self.inner, (Atom, Neg)):
             return f"~{self.inner}"
         return f"~({self.inner})"
 
@@ -51,22 +51,13 @@ class Conj(Formula):
         object.__setattr__(self, "parts", tuple(parts))
 
     def atoms(self) -> set[str]:
-        result: set[str] = set()
-        for part in self.parts:
-            result |= part.atoms()
-        return result
+        return set().union(*(p.atoms() for p in self.parts))
 
     def eval(self, valuation: Dict[str, bool]) -> bool:
-        return all(part.eval(valuation) for part in self.parts)
+        return all(p.eval(valuation) for p in self.parts)
 
     def __str__(self) -> str:
-        rendered: list[str] = []
-        for part in self.parts:
-            text = str(part)
-            if isinstance(part, (Disj, Impl, Bicond)):
-                text = f"({text})"
-            rendered.append(text)
-        return " & ".join(rendered)
+        return " & ".join(_paren_if(p, (Disj, Impl, Bicond)) for p in self.parts)
 
 
 @dataclass(frozen=True)
@@ -77,22 +68,13 @@ class Disj(Formula):
         object.__setattr__(self, "parts", tuple(parts))
 
     def atoms(self) -> set[str]:
-        result: set[str] = set()
-        for part in self.parts:
-            result |= part.atoms()
-        return result
+        return set().union(*(p.atoms() for p in self.parts))
 
     def eval(self, valuation: Dict[str, bool]) -> bool:
-        return any(part.eval(valuation) for part in self.parts)
+        return any(p.eval(valuation) for p in self.parts)
 
     def __str__(self) -> str:
-        rendered: list[str] = []
-        for part in self.parts:
-            text = str(part)
-            if isinstance(part, (Conj, Impl, Bicond)):
-                text = f"({text})"
-            rendered.append(text)
-        return " | ".join(rendered)
+        return " | ".join(_paren_if(p, (Conj, Impl, Bicond)) for p in self.parts)
 
 
 @dataclass(frozen=True)
@@ -107,15 +89,7 @@ class Impl(Formula):
         return (not self.lhs.eval(valuation)) or self.rhs.eval(valuation)
 
     def __str__(self) -> str:
-        left = str(self.lhs)
-        right = str(self.rhs)
-
-        if not isinstance(self.lhs, (Atom, Neg)):
-            left = f"({left})"
-        if not isinstance(self.rhs, (Atom, Neg)):
-            right = f"({right})"
-
-        return f"{left} >> {right}"
+        return f"{_paren_if(self.lhs, (Impl, Bicond))} >> {_paren_if(self.rhs, (Bicond,))}"
 
 
 @dataclass(frozen=True)
@@ -130,17 +104,15 @@ class Bicond(Formula):
         return self.lhs.eval(valuation) == self.rhs.eval(valuation)
 
     def __str__(self) -> str:
-        left = str(self.lhs)
-        right = str(self.rhs)
-
-        if not isinstance(self.lhs, (Atom, Neg)):
-            left = f"({left})"
-        if not isinstance(self.rhs, (Atom, Neg)):
-            right = f"({right})"
-
-        return f"{left} <> {right}"
+        return f"{_paren_if(self.lhs, (Bicond,))} <> {_paren_if(self.rhs, (Bicond,))}"
 
 
+def _paren_if(f: Formula, types: tuple) -> str:
+    return f"({f})" if isinstance(f, types) else str(f)
+
+
+# Grammar (lowest to highest precedence): <>, >>, |, &, ~
+# Implication is right-associative; the rest are left-associative and flattened.
 _TOKEN_RE = re.compile(r"\s*(>>|<>|~|&|\||\(|\)|[A-Za-z_]\w*)")
 _ATOM_RE = re.compile(r"^[A-Za-z_]\w*$")
 
@@ -153,57 +125,53 @@ class _Parser:
     @staticmethod
     def _tokenize(text: str) -> list[str]:
         tokens: list[str] = []
-        index = 0
-        while index < len(text):
-            match = _TOKEN_RE.match(text, index)
-            if match is None:
-                if text[index].isspace():
-                    index += 1
+        i = 0
+        while i < len(text):
+            m = _TOKEN_RE.match(text, i)
+            if m is None:
+                if text[i].isspace():
+                    i += 1
                     continue
-                raise SyntaxError(f"Invalid token near: {text[index:index + 10]!r}")
-            tokens.append(match.group(1))
-            index = match.end()
+                raise SyntaxError(f"Invalid token near: {text[i:i+10]!r}")
+            tokens.append(m.group(1))
+            i = m.end()
         return tokens
 
     def parse(self) -> Formula:
         if not self.tokens:
             raise SyntaxError("Empty formula")
-        formula = self._biconditional()
+        f = self._biconditional()
         if self._peek() is not None:
             raise SyntaxError(f"Unexpected trailing token: {self._peek()}")
-        return formula
+        return f
 
     def _peek(self) -> str | None:
-        if self.pos >= len(self.tokens):
-            return None
-        return self.tokens[self.pos]
+        return self.tokens[self.pos] if self.pos < len(self.tokens) else None
 
     def _eat(self) -> str:
-        token = self._peek()
-        if token is None:
+        t = self._peek()
+        if t is None:
             raise SyntaxError("Unexpected end of input")
         self.pos += 1
-        return token
+        return t
 
     def _expect(self, expected: str) -> None:
-        token = self._eat()
-        if token != expected:
-            raise SyntaxError(f"Expected '{expected}', got '{token}'")
+        t = self._eat()
+        if t != expected:
+            raise SyntaxError(f"Expected '{expected}', got '{t}'")
 
     def _biconditional(self) -> Formula:
         left = self._implication()
         while self._peek() == "<>":
             self._eat()
-            right = self._implication()
-            left = Bicond(left, right)
+            left = Bicond(left, self._implication())
         return left
 
     def _implication(self) -> Formula:
         left = self._disjunction()
         if self._peek() == ">>":
             self._eat()
-            right = self._implication()
-            return Impl(left, right)
+            return Impl(left, self._implication())
         return left
 
     def _disjunction(self) -> Formula:
@@ -221,124 +189,117 @@ class _Parser:
         return parts[0] if len(parts) == 1 else Conj(*parts)
 
     def _unary(self) -> Formula:
-        token = self._peek()
-        if token == "~":
+        t = self._peek()
+        if t == "~":
             self._eat()
             return Neg(self._unary())
-        if token == "(":
+        if t == "(":
             self._eat()
-            formula = self._biconditional()
+            f = self._biconditional()
             self._expect(")")
-            return formula
-        if token is None:
+            return f
+        if t is None:
             raise SyntaxError("Unexpected end of input")
-        if _ATOM_RE.match(token):
+        if _ATOM_RE.match(t):
             return Atom(self._eat())
-        raise SyntaxError(f"Expected an atom, got '{token}'")
+        raise SyntaxError(f"Expected an atom, got '{t}'")
 
 
 def parse(text: str) -> Formula:
     return _Parser(text).parse()
 
 
+# CNF: eliminate <>, eliminate >>, push negations into NNF, distribute, flatten.
 def to_cnf(formula: Formula) -> Formula:
-    formula = _elim_biconditional(formula)
-    formula = _elim_implication(formula)
-    formula = _push_negations(formula)
-    formula = _distribute_disjunction(formula)
-    return _flatten(formula)
+    f = _elim_bicond(formula)
+    f = _elim_impl(f)
+    f = _nnf(f)
+    f = _distribute(f)
+    return _flatten(f)
 
 
-def _elim_biconditional(formula: Formula) -> Formula:
-    if isinstance(formula, Atom):
-        return formula
-    if isinstance(formula, Neg):
-        return Neg(_elim_biconditional(formula.inner))
-    if isinstance(formula, Conj):
-        return Conj(*(_elim_biconditional(part) for part in formula.parts))
-    if isinstance(formula, Disj):
-        return Disj(*(_elim_biconditional(part) for part in formula.parts))
-    if isinstance(formula, Impl):
-        return Impl(_elim_biconditional(formula.lhs), _elim_biconditional(formula.rhs))
-    if isinstance(formula, Bicond):
-        left = _elim_biconditional(formula.lhs)
-        right = _elim_biconditional(formula.rhs)
-        return Conj(Impl(left, right), Impl(right, left))
-    raise TypeError(f"Unsupported formula type: {type(formula).__name__}")
+def _elim_bicond(f: Formula) -> Formula:
+    if isinstance(f, Atom):
+        return f
+    if isinstance(f, Neg):
+        return Neg(_elim_bicond(f.inner))
+    if isinstance(f, Conj):
+        return Conj(*(_elim_bicond(p) for p in f.parts))
+    if isinstance(f, Disj):
+        return Disj(*(_elim_bicond(p) for p in f.parts))
+    if isinstance(f, Impl):
+        return Impl(_elim_bicond(f.lhs), _elim_bicond(f.rhs))
+    if isinstance(f, Bicond):
+        lhs, rhs = _elim_bicond(f.lhs), _elim_bicond(f.rhs)
+        return Conj(Impl(lhs, rhs), Impl(rhs, lhs))
+    raise TypeError(type(f).__name__)
 
 
-def _elim_implication(formula: Formula) -> Formula:
-    if isinstance(formula, Atom):
-        return formula
-    if isinstance(formula, Neg):
-        return Neg(_elim_implication(formula.inner))
-    if isinstance(formula, Conj):
-        return Conj(*(_elim_implication(part) for part in formula.parts))
-    if isinstance(formula, Disj):
-        return Disj(*(_elim_implication(part) for part in formula.parts))
-    if isinstance(formula, Impl):
-        return Disj(Neg(_elim_implication(formula.lhs)), _elim_implication(formula.rhs))
-    raise TypeError(f"Unsupported formula type: {type(formula).__name__}")
+def _elim_impl(f: Formula) -> Formula:
+    if isinstance(f, Atom):
+        return f
+    if isinstance(f, Neg):
+        return Neg(_elim_impl(f.inner))
+    if isinstance(f, Conj):
+        return Conj(*(_elim_impl(p) for p in f.parts))
+    if isinstance(f, Disj):
+        return Disj(*(_elim_impl(p) for p in f.parts))
+    if isinstance(f, Impl):
+        return Disj(Neg(_elim_impl(f.lhs)), _elim_impl(f.rhs))
+    raise TypeError(type(f).__name__)
 
 
-def _push_negations(formula: Formula) -> Formula:
-    if isinstance(formula, Atom):
-        return formula
-    if isinstance(formula, Neg):
-        inner = formula.inner
+def _nnf(f: Formula) -> Formula:
+    if isinstance(f, Atom):
+        return f
+    if isinstance(f, Neg):
+        inner = f.inner
         if isinstance(inner, Atom):
-            return formula
+            return f
         if isinstance(inner, Neg):
-            return _push_negations(inner.inner)
+            return _nnf(inner.inner)
         if isinstance(inner, Conj):
-            return Disj(*(_push_negations(Neg(part)) for part in inner.parts))
+            return Disj(*(_nnf(Neg(p)) for p in inner.parts))
         if isinstance(inner, Disj):
-            return Conj(*(_push_negations(Neg(part)) for part in inner.parts))
-        return Neg(_push_negations(inner))
-    if isinstance(formula, Conj):
-        return Conj(*(_push_negations(part) for part in formula.parts))
-    if isinstance(formula, Disj):
-        return Disj(*(_push_negations(part) for part in formula.parts))
-    raise TypeError(f"Unsupported formula type: {type(formula).__name__}")
+            return Conj(*(_nnf(Neg(p)) for p in inner.parts))
+    if isinstance(f, Conj):
+        return Conj(*(_nnf(p) for p in f.parts))
+    if isinstance(f, Disj):
+        return Disj(*(_nnf(p) for p in f.parts))
+    raise TypeError(type(f).__name__)
 
 
-def _distribute_disjunction(formula: Formula) -> Formula:
-    if isinstance(formula, (Atom, Neg)):
-        return formula
-    if isinstance(formula, Conj):
-        return Conj(*(_distribute_disjunction(part) for part in formula.parts))
-    if isinstance(formula, Disj):
-        parts = [_distribute_disjunction(part) for part in formula.parts]
-        for index, part in enumerate(parts):
-            if isinstance(part, Conj):
-                others = parts[:index] + parts[index + 1 :]
-                return Conj(*(_distribute_disjunction(Disj(conj_part, *others)) for conj_part in part.parts))
+def _distribute(f: Formula) -> Formula:
+    if isinstance(f, (Atom, Neg)):
+        return f
+    if isinstance(f, Conj):
+        return Conj(*(_distribute(p) for p in f.parts))
+    if isinstance(f, Disj):
+        parts = [_distribute(p) for p in f.parts]
+        for i, p in enumerate(parts):
+            if isinstance(p, Conj):
+                rest = parts[:i] + parts[i + 1:]
+                return Conj(*(_distribute(Disj(c, *rest)) for c in p.parts))
         return Disj(*parts)
-    raise TypeError(f"Unsupported formula type: {type(formula).__name__}")
+    raise TypeError(type(f).__name__)
 
 
-def _flatten(formula: Formula) -> Formula:
-    if isinstance(formula, (Atom, Neg)):
-        return formula
-    if isinstance(formula, Conj):
-        parts: list[Formula] = []
-        for part in formula.parts:
-            flat = _flatten(part)
-            if isinstance(flat, Conj):
-                parts.extend(flat.parts)
-            else:
-                parts.append(flat)
-        return parts[0] if len(parts) == 1 else Conj(*parts)
-    if isinstance(formula, Disj):
-        parts: list[Formula] = []
-        for part in formula.parts:
-            flat = _flatten(part)
-            if isinstance(flat, Disj):
-                parts.extend(flat.parts)
-            else:
-                parts.append(flat)
-        return parts[0] if len(parts) == 1 else Disj(*parts)
-    raise TypeError(f"Unsupported formula type: {type(formula).__name__}")
+def _flatten(f: Formula) -> Formula:
+    if isinstance(f, (Atom, Neg)):
+        return f
+    if isinstance(f, Conj):
+        flat: list[Formula] = []
+        for p in f.parts:
+            fp = _flatten(p)
+            flat.extend(fp.parts if isinstance(fp, Conj) else [fp])
+        return flat[0] if len(flat) == 1 else Conj(*flat)
+    if isinstance(f, Disj):
+        flat: list[Formula] = []
+        for p in f.parts:
+            fp = _flatten(p)
+            flat.extend(fp.parts if isinstance(fp, Disj) else [fp])
+        return flat[0] if len(flat) == 1 else Disj(*flat)
+    raise TypeError(type(f).__name__)
 
 
 Clause = frozenset[tuple[str, bool]]
@@ -350,8 +311,8 @@ def to_clauses(formula: Formula) -> set[Clause]:
 
     def collect(node: Formula) -> None:
         if isinstance(node, Conj):
-            for part in node.parts:
-                collect(part)
+            for p in node.parts:
+                collect(p)
         else:
             clauses.add(_make_clause(node))
 
@@ -360,40 +321,41 @@ def to_clauses(formula: Formula) -> set[Clause]:
 
 
 def _make_clause(formula: Formula) -> Clause:
-    literals: set[tuple[str, bool]] = set()
+    lits: set[tuple[str, bool]] = set()
 
     def walk(node: Formula) -> None:
         if isinstance(node, Disj):
-            for part in node.parts:
-                walk(part)
+            for p in node.parts:
+                walk(p)
         elif isinstance(node, Neg) and isinstance(node.inner, Atom):
-            literals.add((node.inner.name, False))
+            lits.add((node.inner.name, False))
         elif isinstance(node, Atom):
-            literals.add((node.name, True))
+            lits.add((node.name, True))
         else:
-            raise ValueError(f"Expected a literal, got: {node}")
+            raise ValueError(f"Not a literal: {node}")
 
     walk(formula)
-    return frozenset(literals)
+    return frozenset(lits)
 
 
+# Truth-table helpers. Used as test oracles and for semantic equivalence checks.
+# The belief revision engine itself never calls these; entailment is resolution.
 def _all_valuations(atoms: Iterable[str]) -> Iterator[Dict[str, bool]]:
     names = sorted(set(atoms))
-    total = len(names)
-    for mask in range(1 << total):
-        yield {name: bool((mask >> index) & 1) for index, name in enumerate(names)}
+    for mask in range(1 << len(names)):
+        yield {name: bool((mask >> i) & 1) for i, name in enumerate(names)}
 
 
 def is_tautology(formula: Formula) -> bool:
-    return all(formula.eval(valuation) for valuation in _all_valuations(formula.atoms()))
+    return all(formula.eval(v) for v in _all_valuations(formula.atoms()))
 
 
 def is_satisfiable(formula: Formula) -> bool:
     atoms = formula.atoms()
     if not atoms:
         return formula.eval({})
-    return any(formula.eval(valuation) for valuation in _all_valuations(atoms))
+    return any(formula.eval(v) for v in _all_valuations(atoms))
 
 
-def equivalent(left: Formula, right: Formula) -> bool:
-    return is_tautology(Bicond(left, right))
+def equivalent(a: Formula, b: Formula) -> bool:
+    return is_tautology(Bicond(a, b))
