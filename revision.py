@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from itertools import combinations
 
 from belief_base import BeliefBase
 from logic import Formula, Neg
 from resolution import entails as resolution_entails
+
+# Remainder enumeration is 2^n in the size of the belief base. Above this
+# threshold we emit a warning so callers know the cost before it hits.
+_REMAINDER_WARN_THRESHOLD = 16
 
 WeightedBelief = tuple[Formula, int]
 Remainder = list[WeightedBelief]
@@ -56,6 +61,13 @@ def _remainders(
     entails_fn: EntailsFn,
 ) -> list[Remainder]:
     n = len(beliefs)
+    if n > _REMAINDER_WARN_THRESHOLD:
+        warnings.warn(
+            f"Remainder enumeration over {n} formulas is 2^{n} subsets "
+            f"and may be slow. Consider kernel contraction or a bounded "
+            f"selection strategy.",
+            stacklevel=2,
+        )
     maximal: list[frozenset[int]] = []
 
     for size in range(n, -1, -1):

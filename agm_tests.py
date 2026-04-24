@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import random
 import unittest
 
 from belief_base import BeliefBase
 from logic import (
-    Atom, Conj, Disj, Formula, Impl, Neg,
+    Atom, Bicond, Conj, Disj, Formula, Impl, Neg,
     equivalent, is_tautology, parse, to_clauses, to_cnf,
 )
 from resolution import entails, is_inconsistent
@@ -18,6 +19,47 @@ def _consistent(formulas: list[Formula]) -> bool:
 def _same_theory(left: list[Formula], right: list[Formula]) -> bool:
     """Cn(left) = Cn(right), verified by mutual entailment."""
     return all(entails(right, f) for f in left) and all(entails(left, f) for f in right)
+
+
+def _tt_entails(kb: list[Formula], query: Formula) -> bool:
+    """Ground-truth entailment by truth tables: KB |= q iff (/\\KB) -> q is a tautology."""
+    return is_tautology(Impl(Conj(*kb), query))
+
+
+def _make_base(spec: list[tuple[str, int]]) -> BeliefBase:
+    bb = BeliefBase()
+    for s, p in spec:
+        bb.add(parse(s), p)
+    return bb
+
+
+# Matrix of bases used by the parameterised postulate tests. Each covers a
+# different structural case: chained implications, independent atoms,
+# ambiguous disjunctions, a deeper chain, and conjunctions.
+BASES: list[list[tuple[str, int]]] = [
+    [("p", 3), ("p >> q", 2), ("q >> r", 1)],
+    [("a", 2), ("b", 2)],
+    [("p | q", 1), ("p | ~q", 1)],
+    [("a", 3), ("b", 2), ("c", 1), ("a >> d", 2), ("b >> d", 1)],
+    [("p >> q", 2), ("q >> r", 2), ("r >> s", 1)],
+    [("p & q", 2), ("q >> r", 1)],
+]
+
+
+def _random_formula(atoms: list[str], max_depth: int, rng: random.Random) -> Formula:
+    if max_depth <= 0 or rng.random() < 0.35:
+        return Atom(rng.choice(atoms))
+    op = rng.choice(["~", "&", "|", ">>", "<>"])
+    if op == "~":
+        return Neg(_random_formula(atoms, max_depth - 1, rng))
+    left = _random_formula(atoms, max_depth - 1, rng)
+    right = _random_formula(atoms, max_depth - 1, rng)
+    return {
+        "&": Conj(left, right),
+        "|": Disj(left, right),
+        ">>": Impl(left, right),
+        "<>": Bicond(left, right),
+    }[op]
 
 
 # AGM revision postulates. Closure (K*1) is formulated for belief sets; we
@@ -208,6 +250,218 @@ class CNFAndParser(unittest.TestCase):
             with self.subTest(input=bad):
                 with self.assertRaises(SyntaxError):
                     parse(bad)
+
+
+# Parameterised postulate matrix. Each postulate is checked across the set
+# of bases in BASES and a spread of phi inputs, including fresh atoms,
+# atoms entailed by the base, their negations, tautology, contradiction,
+# and cross-atom formulas.
+
+class ParameterisedRevisionPostulates(unittest.TestCase):
+    PHIS = ["s", "~r", "q", "p | ~p", "~p", "a & b", "~(p & q)", "p & ~p"]
+
+    def test_success(self):
+        # (K*2) B * phi entails phi, across every base and phi.
+        for spec in BASES:
+            for phi_s in self.PHIS:
+                with self.subTest(base=spec, phi=phi_s):
+                    bb = _make_base(spec)
+                    phi = parse(phi_s)
+                    rev = revision(bb, phi).formulas()
+                    self.assertTrue(entails(rev, phi))
+
+    def test_inclusion(self):
+        # (K*3) B * phi subset of Cn(B + phi).
+        for spec in BASES:
+            for phi_s in self.PHIS:
+                with self.subTest(base=spec, phi=phi_s):
+                    bb = _make_base(spec)
+                    phi = parse(phi_s)
+                    rev = revision(bb, phi).formulas()
+                    exp = expansion(bb, phi).formulas()
+                    for f in rev:
+                        self.assertTrue(entails(exp, f))
+
+    def test_vacuity(self):
+        # (K*4) If ~phi is not entailed by B, revision coincides with expansion.
+        for spec in BASES:
+            for phi_s in self.PHIS:
+                bb = _make_base(spec)
+                phi = parse(phi_s)
+                if entails(bb.formulas(), Neg(phi)):
+                    continue  # precondition of vacuity fails; skip
+                with self.subTest(base=spec, phi=phi_s):
+                    self.assertTrue(_same_theory(
+                        revision(bb, phi).formulas(),
+                        expansion(bb, phi).formulas(),
+                    ))
+
+    def test_consistency(self):
+        # (K*5) If phi is consistent, B * phi is consistent.
+        for spec in BASES:
+            for phi_s in self.PHIS:
+                bb = _make_base(spec)
+                phi = parse(phi_s)
+                if is_inconsistent([phi]):
+                    continue  # precondition fails; skip
+                with self.subTest(base=spec, phi=phi_s):
+                    self.assertTrue(_consistent(revision(bb, phi).formulas()))
+
+    def test_extensionality(self):
+        # (K*6) Logically equivalent inputs yield the same revision.
+        pairs = [
+            ("s", "~~s"),
+            ("~(p & q)", "~p | ~q"),
+            ("p >> q", "~p | q"),
+            ("p <> q", "(p & q) | (~p & ~q)"),
+            ("(p | q) & (p | ~q)", "p"),
+        ]
+        for spec in BASES:
+            for phi_s, psi_s in pairs:
+                bb = _make_base(spec)
+                phi, psi = parse(phi_s), parse(psi_s)
+                with self.subTest(base=spec, phi=phi_s, psi=psi_s):
+                    self.assertTrue(equivalent(phi, psi))
+                    self.assertTrue(_same_theory(
+                        revision(bb, phi).formulas(),
+                        revision(bb, psi).formulas(),
+                    ))
+
+
+class ParameterisedContractionPostulates(unittest.TestCase):
+    PHIS = ["r", "q", "p", "~p", "q | r", "p & q", "p | ~p"]
+
+    def test_inclusion(self):
+        # (K-2) B / phi subset of Cn(B).
+        for spec in BASES:
+            for phi_s in self.PHIS:
+                with self.subTest(base=spec, phi=phi_s):
+                    bb = _make_base(spec)
+                    for f in contraction(bb, parse(phi_s)).formulas():
+                        self.assertTrue(entails(bb.formulas(), f))
+
+    def test_success(self):
+        # (K-4) If phi is not a tautology, B / phi does not entail phi.
+        for spec in BASES:
+            for phi_s in self.PHIS:
+                bb = _make_base(spec)
+                phi = parse(phi_s)
+                if is_tautology(phi):
+                    continue
+                with self.subTest(base=spec, phi=phi_s):
+                    contracted = contraction(bb, phi).formulas()
+                    self.assertFalse(entails(contracted, phi))
+
+    def test_vacuity(self):
+        # (K-3) If B does not entail phi, contraction is identity.
+        for spec in BASES:
+            for phi_s in self.PHIS:
+                bb = _make_base(spec)
+                phi = parse(phi_s)
+                if entails(bb.formulas(), phi):
+                    continue
+                with self.subTest(base=spec, phi=phi_s):
+                    self.assertEqual(contraction(bb, phi).items(), bb.items())
+
+    def test_extensionality(self):
+        # (K-6) Logically equivalent formulas yield the same contraction.
+        pairs = [
+            ("r", "~~r"),
+            ("~(p & q)", "~p | ~q"),
+            ("p >> q", "~p | q"),
+            ("p <> q", "(p & q) | (~p & ~q)"),
+        ]
+        for spec in BASES:
+            for phi_s, psi_s in pairs:
+                bb = _make_base(spec)
+                phi, psi = parse(phi_s), parse(psi_s)
+                with self.subTest(base=spec, phi=phi_s, psi=psi_s):
+                    self.assertTrue(equivalent(phi, psi))
+                    self.assertTrue(_same_theory(
+                        contraction(bb, phi).formulas(),
+                        contraction(bb, psi).formulas(),
+                    ))
+
+
+# Recovery (K-5) fails on belief bases in general. We document a concrete
+# counterexample rather than silently omitting the postulate.
+
+class RecoveryFailsOnBases(unittest.TestCase):
+    def test_recovery_counterexample(self):
+        # B = {p & q}. Contract with p.
+        # The only subset of B that does not entail p is the empty set,
+        # so B / p = {}. Then Cn({} u {p}) = Cn({p}), which does NOT contain
+        # p & q. Recovery (B subset of Cn((B/phi) u {phi})) therefore fails.
+        bb = BeliefBase()
+        bb.add(parse("p & q"), 1)
+        contracted = contraction(bb, parse("p")).formulas()
+        recovered = contracted + [parse("p")]
+        self.assertFalse(
+            entails(recovered, parse("p & q")),
+            "Recovery would require p & q in Cn((B / p) u {p}), "
+            "but partial meet on belief bases does not recover it.",
+        )
+
+
+# Boundary inputs the parameterised matrix does not exercise directly.
+
+class EdgeCases(unittest.TestCase):
+    def test_empty_base_contraction_is_empty(self):
+        self.assertEqual(contraction(BeliefBase(), parse("p")).items(), [])
+
+    def test_empty_base_expansion(self):
+        expanded = expansion(BeliefBase(), parse("p"), priority=1)
+        self.assertEqual([str(f) for f in expanded.formulas()], ["p"])
+
+    def test_empty_base_revision(self):
+        revised = revision(BeliefBase(), parse("p"), priority=1)
+        self.assertTrue(entails(revised.formulas(), parse("p")))
+
+    def test_contraction_of_tautology_is_identity(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 1)
+        self.assertEqual(contraction(bb, parse("p | ~p")).items(), bb.items())
+
+    def test_contraction_of_contradiction_on_consistent_base(self):
+        # Consistent B does not entail a contradiction, so vacuity gives identity.
+        bb = BeliefBase()
+        bb.add(parse("p"), 1)
+        self.assertEqual(contraction(bb, parse("q & ~q")).items(), bb.items())
+
+    def test_revision_with_tautology_preserves_base(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 1)
+        revised = revision(bb, parse("q | ~q"), priority=1)
+        self.assertTrue(entails(revised.formulas(), parse("p")))
+        self.assertTrue(entails(revised.formulas(), parse("q | ~q")))
+
+    def test_revision_with_contradiction_yields_inconsistent_base(self):
+        bb = BeliefBase()
+        bb.add(parse("p"), 1)
+        revised = revision(bb, parse("q & ~q"), priority=1)
+        self.assertTrue(is_inconsistent(revised.formulas()))
+
+
+# Randomised fuzz: resolution-based entailment must agree with truth tables
+# on every (kb, query) pair. Seeded so failures are reproducible.
+
+class ResolutionAgreesWithTruthTables(unittest.TestCase):
+    ITERATIONS = 80
+
+    def test_fuzz(self):
+        rng = random.Random(42)
+        atoms = ["p", "q", "r"]
+        for i in range(self.ITERATIONS):
+            kb_size = rng.randint(0, 3)
+            kb = [_random_formula(atoms, max_depth=2, rng=rng) for _ in range(kb_size)]
+            query = _random_formula(atoms, max_depth=2, rng=rng)
+            with self.subTest(i=i, kb=[str(f) for f in kb], query=str(query)):
+                self.assertEqual(
+                    entails(kb, query),
+                    _tt_entails(kb, query),
+                    f"resolution disagrees with truth table on "
+                    f"kb={[str(f) for f in kb]}, query={query}",
+                )
 
 
 if __name__ == "__main__":

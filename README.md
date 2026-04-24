@@ -8,7 +8,7 @@ Requires Python 3.10+ and has no third-party dependencies.
 
 - `belief_base.py`: belief base with priority-tagged formulas
 - `logic.py`: formula classes, parser, CNF conversion, satisfiability and tautology helpers
-- `resolution.py`: entailment by resolution refutation, with a semantic fallback for large clause sets
+- `resolution.py`: entailment by resolution refutation over CNF clause sets
 - `revision.py`: expansion, partial meet contraction, and revision (Levi identity)
 - `agm_tests.py`: `unittest` suite for the AGM postulates, contraction properties, resolution, and the parser
 - `mastermind.py`: optional Mastermind code-breaker driven by belief revision
@@ -28,7 +28,7 @@ python3 mastermind.py --auto     # auto game with a random secret
 `python3 agm_tests.py` runs four groups of tests:
 
 - **Revision postulates** (Success, Inclusion, Vacuity, Consistency, Extensionality, Closure)
-- **Contraction postulates** (Success, Inclusion, Vacuity, Recovery, Extensionality)
+- **Contraction postulates** (Success, Inclusion, Vacuity, Extensionality; plus an explicit Recovery counterexample — Recovery does not hold for belief-base partial meet in general)
 - **Resolution** (modus ponens, modus tollens, disjunctive syllogism, inconsistency detection, tautology entailment)
 - **Parser** (error handling for malformed formulas)
 
