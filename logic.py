@@ -111,8 +111,7 @@ def _paren_if(f: Formula, types: tuple) -> str:
     return f"({f})" if isinstance(f, types) else str(f)
 
 
-# Grammar (lowest to highest precedence): <>, >>, |, &, ~
-# Implication is right-associative; the rest are left-associative and flattened.
+# precedence (low -> high): <>, >>, |, &, ~  (>> is right-assoc)
 _TOKEN_RE = re.compile(r"\s*(>>|<>|~|&|\||\(|\)|[A-Za-z_]\w*)")
 _ATOM_RE = re.compile(r"^[A-Za-z_]\w*$")
 
@@ -209,7 +208,7 @@ def parse(text: str) -> Formula:
     return _Parser(text).parse()
 
 
-# CNF: eliminate <>, eliminate >>, push negations into NNF, distribute, flatten.
+# CNF pipeline: drop <>, drop >>, NNF, distribute |/&, flatten.
 def to_cnf(formula: Formula) -> Formula:
     f = _elim_bicond(formula)
     f = _elim_impl(f)
@@ -338,8 +337,7 @@ def _make_clause(formula: Formula) -> Clause:
     return frozenset(lits)
 
 
-# Truth-table helpers. Used as test oracles and for semantic equivalence checks.
-# The belief revision engine itself never calls these; entailment is resolution.
+# Truth-table helpers. Used by the tests as a ground-truth oracle.
 def _all_valuations(atoms: Iterable[str]) -> Iterator[Dict[str, bool]]:
     names = sorted(set(atoms))
     for mask in range(1 << len(names)):

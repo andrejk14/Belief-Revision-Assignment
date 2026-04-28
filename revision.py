@@ -8,8 +8,7 @@ from belief_base import BeliefBase
 from logic import Formula, Neg
 from resolution import entails as resolution_entails
 
-# Remainder enumeration is 2^n in the size of the belief base. Above this
-# threshold we emit a warning so callers know the cost before it hits.
+# Remainder enumeration is 2^n; warn above this size.
 _REMAINDER_WARN_THRESHOLD = 16
 
 WeightedBelief = tuple[Formula, int]
@@ -32,8 +31,7 @@ def contraction(
     items = base.items()
     formulas = [f for f, _ in items]
 
-    # Tautologies cannot be contracted out; also, if phi is not entailed at all,
-    # there is nothing to remove. Both are identity cases.
+    # tautology or not-entailed -> nothing to do
     if entails_fn([], phi) or not entails_fn(formulas, phi):
         return base.copy()
 
@@ -62,12 +60,7 @@ def _remainders(
 ) -> list[Remainder]:
     n = len(beliefs)
     if n > _REMAINDER_WARN_THRESHOLD:
-        warnings.warn(
-            f"Remainder enumeration over {n} formulas is 2^{n} subsets "
-            f"and may be slow. Consider kernel contraction or a bounded "
-            f"selection strategy.",
-            stacklevel=2,
-        )
+        warnings.warn(f"Remainder enumeration over {n} formulas (2^{n} subsets) may be slow.", stacklevel=2)
     maximal: list[frozenset[int]] = []
 
     for size in range(n, -1, -1):

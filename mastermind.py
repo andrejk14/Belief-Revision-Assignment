@@ -1,19 +1,6 @@
-"""Mastermind solver driven by the belief revision engine.
-
-The solver reuses `revision.revision` unchanged but passes a custom
-entailment oracle (`_feedback_entails`) instead of the resolution engine.
-The oracle is semantic: it enumerates the finite domain of legal codes
-(6 colours, 4 positions, no repeats = 360 codes) and checks whether every
-code consistent with the background theory plus the current feedback also
-satisfies the query. This is strictly faster than resolution for this
-encoding (~24 atoms, tens to ~96 clauses) because model enumeration is
-linear in the number of codes while resolution-refutation can be worst-case
-exponential in the clause set.
-
-The main belief revision machinery is untouched; this module exercises
-that the engine accepts pluggable entailment (the `entails_fn` parameter
-on `revision`).
-"""
+# Mastermind code-breaker. Uses the belief revision engine with a
+# semantic entailment oracle (model enumeration over the 360 legal codes)
+# instead of resolution, since the domain is finite and small.
 from __future__ import annotations
 
 from itertools import permutations
@@ -89,8 +76,8 @@ def _consistent_codes(formulas: list[Formula]) -> list[list[int]]:
 
 
 class Solver:
-    BACKGROUND_PRIORITY = 10 # game rules: inviolable
-    FEEDBACK_PRIORITY = 5 # feedback: trusted but in principle revisable
+    BACKGROUND_PRIORITY = 10
+    FEEDBACK_PRIORITY = 5
 
     def __init__(self) -> None:
         self._background = BeliefBase()

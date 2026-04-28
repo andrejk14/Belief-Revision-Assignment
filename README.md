@@ -1,52 +1,56 @@
-# Belief Revision Engine
+# Belief Revision Assignment
 
-Propositional-logic belief revision engine covering CNF conversion, resolution-based entailment, partial meet contraction, and AGM revision via the Levi identity. Includes an optional Mastermind code-breaker built on top of the engine.
+Belief revision engine for the 02180 assignment. Implements a belief base with
+priorities, resolution-based entailment, partial meet contraction, expansion,
+and AGM revision (Levi identity). Also includes a Mastermind code-breaker
+built on top of the engine.
 
-Requires Python 3.10+ and has no third-party dependencies.
+Written in Python 3 (tested with 3.10). No external libraries.
 
 ## Files
 
-- `belief_base.py`: belief base with priority-tagged formulas
-- `logic.py`: formula classes, parser, CNF conversion, satisfiability and tautology helpers
-- `resolution.py`: entailment by resolution refutation over CNF clause sets
-- `revision.py`: expansion, partial meet contraction, and revision (Levi identity)
-- `agm_tests.py`: `unittest` suite for the AGM postulates, contraction properties, resolution, and the parser
-- `mastermind.py`: optional Mastermind code-breaker driven by belief revision
-- `main.py`: demo runner walking through each stage of the assignment
+- `belief_base.py` - belief base, formulas tagged with a priority
+- `logic.py` - Formula classes, a small parser, and CNF conversion
+- `resolution.py` - resolution refutation for entailment
+- `revision.py` - expansion, partial meet contraction, revision
+- `agm_tests.py` - tests for the AGM postulates and the rest of the engine
+- `mastermind.py` - Mastermind code-breaker (the optional part)
+- `main.py` - small demo that runs through each step
 
-## Run
+## How to run
 
-```bash
-python3 agm_tests.py             # run the full test suite
-python3 main.py                  # demo of all stages + Mastermind
-python3 mastermind.py            # interactive Mastermind
-python3 mastermind.py --auto     # auto game with a random secret
-```
+Run the tests:
 
-## Tests
+    python3 agm_tests.py
 
-`python3 agm_tests.py` runs four groups of tests:
+Run the demo (belief revision + Mastermind):
 
-- **Revision postulates** (Success, Inclusion, Vacuity, Consistency, Extensionality, Closure)
-- **Contraction postulates** (Success, Inclusion, Vacuity, Extensionality; plus an explicit Recovery counterexample — Recovery does not hold for belief-base partial meet in general)
-- **Resolution** (modus ponens, modus tollens, disjunctive syllogism, inconsistency detection, tautology entailment)
-- **Parser** (error handling for malformed formulas)
+    python3 main.py
+
+Play Mastermind:
+
+    python3 mastermind.py            # interactive
+    python3 mastermind.py --auto     # auto game with a random secret
+
+## What the tests cover
+
+- Revision postulates: Success, Inclusion, Vacuity, Consistency, Extensionality
+- Contraction postulates: Success, Inclusion, Vacuity, Extensionality, and a
+  counterexample showing that Recovery does not hold for partial meet on a
+  belief base
+- Partial meet: that the result is the intersection of selected remainders,
+  and that priorities break ties
+- Resolution on a few standard inference rules
+- A couple of CNF and parser sanity checks
 
 ## Formula syntax
 
-Operators from lowest to highest precedence:
+The parser uses these operators (low to high precedence):
 
-1. `<>` — biconditional
-2. `>>` — implication
-3. `|` — disjunction
-4. `&` — conjunction
-5. `~` — negation
+1. `<>` biconditional
+2. `>>` implication
+3. `|`  or
+4. `&`  and
+5. `~`  not
 
-Examples:
-
-```text
-p & q
-p >> q
-~(a | b)
-p <> q
-```
+Examples: `p & q`, `p >> q`, `~(a | b)`, `p <> q`.
